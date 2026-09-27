@@ -67,25 +67,24 @@ st.set_page_config(page_title="WatermarkGuard", layout="wide")
 st.session_state.setdefault("active_page", "Create Watermark")
 st.session_state.setdefault("attack_mode", "Single Attack")
 
-# --- UI/UX CSS UPDATE KEDUA (AURORA GLASSMORPHISM) DITERAPKAN DI SINI ---
+# --- UI/UX CSS UPDATE KETIGA (AURORA GLASSMORPHISM POLISHED) ---
 st.markdown(
     """
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
     :root {
-        /* Warna Dasar & Glassmorphism */
-        --color-glass-bg: rgba(30, 41, 59, 0.45);
-        --color-glass-border: rgba(255, 255, 255, 0.1);
-        --color-glass-hover: rgba(255, 255, 255, 0.05);
+        /* Warna Dasar & Glassmorphism yang lebih premium */
+        --color-glass-bg: rgba(15, 23, 42, 0.55);
+        --color-glass-border: rgba(255, 255, 255, 0.12);
         
         /* Tipografi */
         --color-text-main: #f8fafc;
-        --color-text-muted: #94a3b8;
+        --color-text-muted: #cbd5e1; /* Dibuat sedikit lebih terang agar lebih mudah dibaca */
         
         /* Aksen Gradasi Modern (Biru - Ungu - Pink) */
-        --color-primary-grad: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #d946ef 100%);
-        --color-primary-grad-hover: linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #c026d3 100%);
+        --color-primary-grad: linear-gradient(135deg, #4f46e5 0%, #9333ea 50%, #e879f9 100%);
+        --color-primary-grad-hover: linear-gradient(135deg, #4338ca 0%, #7e22ce 50%, #d946ef 100%);
         
         /* Status Warna Pastel Neon */
         --color-success-bg: rgba(16, 185, 129, 0.15);
@@ -96,17 +95,17 @@ st.markdown(
         --color-danger-border: #ef4444;
     }
 
-    /* Background Aplikasi: Mesh Gradient yang halus dan tidak bertabrakan */
+    /* Background Aplikasi: Mesh Gradient yang lebih hidup namun lembut */
     html, body, #root, [data-testid="stApp"],
     [data-testid="stAppViewContainer"], [data-testid="stMain"],
     [data-testid="stMainBlockContainer"], .block-container,
     [data-testid="stHeader"] {
-        background-color: #0b0f19 !important;
+        background-color: #080b13 !important; /* Warna dasar sangat gelap untuk kontras maksimal */
         background-image: 
-            radial-gradient(circle at 10% 20%, rgba(99, 102, 241, 0.12) 0%, transparent 40%),
-            radial-gradient(circle at 90% 10%, rgba(217, 70, 239, 0.1) 0%, transparent 40%),
-            radial-gradient(circle at 70% 80%, rgba(14, 165, 233, 0.1) 0%, transparent 45%),
-            radial-gradient(circle at 20% 90%, rgba(16, 185, 129, 0.08) 0%, transparent 40%) !important;
+            radial-gradient(circle at 15% 25%, rgba(79, 70, 229, 0.18) 0%, transparent 45%),
+            radial-gradient(circle at 85% 15%, rgba(217, 70, 239, 0.15) 0%, transparent 45%),
+            radial-gradient(circle at 75% 85%, rgba(14, 165, 233, 0.15) 0%, transparent 50%),
+            radial-gradient(circle at 20% 90%, rgba(16, 185, 129, 0.12) 0%, transparent 45%) !important;
         background-attachment: fixed !important;
         color: var(--color-text-main);
         font-family: 'Plus Jakarta Sans', sans-serif;
@@ -133,11 +132,11 @@ st.markdown(
         margin: 0 0 2rem;
         padding: 0.5rem 2rem;
         overflow: visible;
-        background: rgba(11, 15, 25, 0.6) !important;
-        backdrop-filter: blur(16px) !important;
-        -webkit-backdrop-filter: blur(16px) !important;
+        background: rgba(8, 11, 19, 0.7) !important;
+        backdrop-filter: blur(20px) !important;
+        -webkit-backdrop-filter: blur(20px) !important;
         border-bottom: 1px solid var(--color-glass-border) !important;
-        box-shadow: 0 4px 30px rgba(0, 0, 0, 0.2) !important;
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3) !important;
     }
     .st-key-top_navbar > [data-testid="stVerticalBlock"] {
         width: 100%;
@@ -179,7 +178,7 @@ st.markdown(
         color: #ffffff;
         font-weight: 800;
         font-size: 0.9rem;
-        box-shadow: 0 4px 15px rgba(139, 92, 246, 0.4);
+        box-shadow: 0 4px 15px rgba(147, 51, 234, 0.4);
     }
     .wg-brand-name {
         background: var(--color-primary-grad);
@@ -193,11 +192,11 @@ st.markdown(
 
     /* Popover & Menu Dropdowns */
     [data-baseweb="popover"], [data-baseweb="menu"], [role="listbox"] {
-        background: rgba(15, 23, 42, 0.9) !important;
-        backdrop-filter: blur(20px) !important;
+        background: rgba(15, 23, 42, 0.95) !important;
+        backdrop-filter: blur(25px) !important;
         border: 1px solid var(--color-glass-border) !important;
         border-radius: 12px;
-        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5) !important;
+        box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6) !important;
     }
     [data-baseweb="popover"] [data-testid="stCaptionContainer"] { display: none; }
     
@@ -247,12 +246,13 @@ st.markdown(
         -webkit-backdrop-filter: blur(16px);
         border: 1px solid var(--color-glass-border);
         border-radius: 16px;
-        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.2);
+        box-shadow: 0 10px 40px -10px rgba(0, 0, 0, 0.4);
         padding: 1.5rem !important;
-        transition: border-color 0.3s ease;
+        transition: border-color 0.3s ease, box-shadow 0.3s ease;
     }
     [data-testid="stVerticalBlockBorderWrapper"]:hover {
-        border-color: rgba(255, 255, 255, 0.2);
+        border-color: rgba(255, 255, 255, 0.25);
+        box-shadow: 0 10px 40px -10px rgba(147, 51, 234, 0.15);
     }
 
     /* File Uploader */
@@ -261,28 +261,17 @@ st.markdown(
     }
     [data-testid="stFileUploaderDropzone"] {
         min-height: 8rem;
-        background: rgba(15, 23, 42, 0.4) !important;
-        border: 2px dashed rgba(255, 255, 255, 0.15) !important;
+        background: rgba(15, 23, 42, 0.6) !important;
+        border: 2px dashed rgba(255, 255, 255, 0.2) !important;
         border-radius: 12px;
         transition: all 0.3s ease;
     }
     [data-testid="stFileUploaderDropzone"]:hover {
-        border-color: #a855f7 !important;
-        background: rgba(168, 85, 247, 0.05) !important;
+        border-color: #e879f9 !important;
+        background: rgba(232, 121, 249, 0.08) !important;
     }
-    [data-testid="stFileUploaderDropzone"] svg { color: #a855f7; fill: #a855f7; }
-    [data-testid="stFileUploaderDropzone"] button {
-        border: 1px solid var(--color-glass-border);
-        border-radius: 8px;
-        background: rgba(255, 255, 255, 0.05);
-        color: var(--color-text-main);
-    }
-    [data-testid="stFileUploaderDropzone"] button:hover {
-        background: var(--color-primary-grad);
-        border-color: transparent;
-        color: #fff;
-    }
-
+    [data-testid="stFileUploaderDropzone"] svg { color: #e879f9; fill: #e879f9; }
+    
     /* Text Inputs, TextAreas, Selectboxes */
     [data-testid="stTextInput"] input,
     [data-testid="stTextArea"] textarea,
@@ -290,13 +279,13 @@ st.markdown(
     [data-testid="stSelectbox"] [data-baseweb="select"] > div,
     [data-testid="stMultiSelect"] [data-baseweb="select"] > div {
         min-height: 2.75rem;
-        background: rgba(15, 23, 42, 0.6) !important;
-        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        background: rgba(15, 23, 42, 0.8) !important;
+        border: 1px solid rgba(255, 255, 255, 0.15) !important;
         border-radius: 10px;
         color: var(--color-text-main) !important;
         transition: all 0.25s ease;
     }
-    [data-testid="stTextInput"] input::placeholder { color: var(--color-text-muted); }
+    [data-testid="stTextInput"] input::placeholder { color: #94a3b8; }
     [data-testid="stTextInput"] button { border: none; background-color: transparent; }
     [data-testid="stTextInput"] button svg { color: var(--color-text-muted); fill: var(--color-text-muted); }
     
@@ -305,13 +294,29 @@ st.markdown(
     [data-testid="stNumberInput"] input:focus,
     [data-testid="stSelectbox"] [data-baseweb="select"] > div:focus-within,
     [data-testid="stMultiSelect"] [data-baseweb="select"] > div:focus-within {
-        border-color: #a855f7 !important;
-        box-shadow: 0 0 0 3px rgba(168, 85, 247, 0.2) !important;
+        border-color: #e879f9 !important;
+        box-shadow: 0 0 0 3px rgba(232, 121, 249, 0.25) !important;
         outline: none;
     }
 
-    input[type="radio"], input[type="checkbox"] { accent-color: #a855f7; }
+    input[type="radio"], input[type="checkbox"] { accent-color: #9333ea; }
     
+    /* =========================================================
+       FIX WARNA TEKS BUTTON AGAR PASTI TERBACA & TIDAK HITAM
+       ========================================================= */
+    [data-testid="stButton"] button p,
+    [data-testid="stButton"] button span,
+    [data-testid="stDownloadButton"] button p,
+    [data-testid="stDownloadButton"] button span,
+    [data-testid="stPopover"] button p,
+    [data-testid="stPopover"] button span,
+    [data-testid="stFileUploaderDropzone"] button p,
+    [data-testid="stFileUploaderDropzone"] button span {
+        color: #ffffff !important;
+        font-weight: 600 !important;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4) !important; /* Bayangan agar kontras */
+    }
+
     /* Buttons Primary (TOMBOL GRADASI KEREN) */
     [data-testid="stButton"] button[kind="primary"],
     [data-testid="stDownloadButton"] button {
@@ -319,32 +324,29 @@ st.markdown(
         background: var(--color-primary-grad) !important;
         border: none !important;
         border-radius: 10px;
-        color: #ffffff !important;
-        font-weight: 700;
-        letter-spacing: 0.5px;
-        box-shadow: 0 4px 15px rgba(139, 92, 246, 0.3) !important;
+        box-shadow: 0 4px 15px rgba(147, 51, 234, 0.3) !important;
         transition: all 0.3s ease !important;
     }
     [data-testid="stButton"] button[kind="primary"]:hover,
     [data-testid="stDownloadButton"] button:hover {
         background: var(--color-primary-grad-hover) !important;
         transform: translateY(-2px);
-        box-shadow: 0 6px 20px rgba(139, 92, 246, 0.5) !important;
+        box-shadow: 0 6px 20px rgba(147, 51, 234, 0.5) !important;
     }
     
     /* Buttons Secondary */
-    [data-testid="stButton"] button[kind="secondary"] {
+    [data-testid="stButton"] button[kind="secondary"],
+    [data-testid="stFileUploaderDropzone"] button {
         min-height: 2.75rem;
-        background: rgba(255, 255, 255, 0.05) !important;
-        border: 1px solid var(--color-glass-border) !important;
+        background: rgba(30, 41, 59, 0.8) !important; /* Dibuat gelap agar teks putih terbaca */
+        border: 1px solid rgba(255, 255, 255, 0.2) !important;
         border-radius: 10px;
-        color: var(--color-text-main) !important;
-        font-weight: 600;
         transition: all 0.2s ease;
     }
-    [data-testid="stButton"] button[kind="secondary"]:hover {
-        background: rgba(255, 255, 255, 0.1) !important;
-        border-color: rgba(255, 255, 255, 0.3) !important;
+    [data-testid="stButton"] button[kind="secondary"]:hover,
+    [data-testid="stFileUploaderDropzone"] button:hover {
+        background: rgba(51, 65, 85, 0.9) !important;
+        border-color: rgba(255, 255, 255, 0.4) !important;
     }
     [data-testid="stButton"] button:disabled {
         opacity: 0.5;
@@ -354,25 +356,25 @@ st.markdown(
 
     /* Metrics Box */
     [data-testid="stMetric"] {
-        background: rgba(255, 255, 255, 0.03);
+        background: rgba(255, 255, 255, 0.04);
         border: 1px solid var(--color-glass-border);
-        border-left: 4px solid #a855f7;
+        border-left: 4px solid #9333ea;
         border-radius: 12px;
         padding: 1rem;
-        box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        box-shadow: 0 4px 15px rgba(0,0,0,0.15);
     }
     [data-testid="stMetric"] label { color: var(--color-text-muted) !important; font-size: 0.9rem; font-weight: 600; }
     [data-testid="stMetric"] [data-testid="stMetricValue"] { color: var(--color-text-main) !important; font-weight: 800; }
 
     /* Progress & Spinner */
     [data-testid="stProgressBar"] div { background: var(--color-primary-grad); }
-    [data-testid="stSpinner"] svg { color: #a855f7; }
+    [data-testid="stSpinner"] svg { color: #e879f9; }
 
     /* Tables dengan Tema Transparan */
     [data-testid="stTable"] { overflow-x: auto; border-radius: 12px; border: 1px solid var(--color-glass-border); }
-    [data-testid="stTable"] table { border-collapse: collapse; background: rgba(15, 23, 42, 0.4); width: 100%; }
+    [data-testid="stTable"] table { border-collapse: collapse; background: rgba(15, 23, 42, 0.6); width: 100%; }
     [data-testid="stTable"] th {
-        background: rgba(255, 255, 255, 0.05);
+        background: rgba(255, 255, 255, 0.08);
         color: var(--color-text-main);
         border-bottom: 1px solid var(--color-glass-border);
         font-weight: 700;
@@ -397,9 +399,9 @@ st.markdown(
         backdrop-filter: blur(8px);
         letter-spacing: 0.5px;
     }
-    .wg-result-detected { background: var(--color-success-bg); color: #34d399; border: 1px solid var(--color-success-border); box-shadow: 0 0 15px rgba(16, 185, 129, 0.2); }
-    .wg-result-partial { background: var(--color-warning-bg); color: #fbbf24; border: 1px solid var(--color-warning-border); box-shadow: 0 0 15px rgba(245, 158, 11, 0.2); }
-    .wg-result-missing { background: var(--color-danger-bg); color: #f87171; border: 1px solid var(--color-danger-border); box-shadow: 0 0 15px rgba(239, 68, 68, 0.2); }
+    .wg-result-detected { background: var(--color-success-bg); color: #34d399; border: 1px solid var(--color-success-border); box-shadow: 0 0 20px rgba(16, 185, 129, 0.25); }
+    .wg-result-partial { background: var(--color-warning-bg); color: #fbbf24; border: 1px solid var(--color-warning-border); box-shadow: 0 0 20px rgba(245, 158, 11, 0.25); }
+    .wg-result-missing { background: var(--color-danger-bg); color: #f87171; border: 1px solid var(--color-danger-border); box-shadow: 0 0 20px rgba(239, 68, 68, 0.25); }
 
     /* Footer */
     .wg-footer {
@@ -412,9 +414,9 @@ st.markdown(
         font-weight: 500;
     }
     
-    a { color: #a855f7; text-decoration: none; transition: color 0.2s; }
-    a:hover { color: #d946ef; }
-    *:focus-visible { outline: 2px solid #a855f7; }
+    a { color: #e879f9; text-decoration: none; transition: color 0.2s; }
+    a:hover { color: #f0abfc; }
+    *:focus-visible { outline: 2px solid #e879f9; }
 
     /* Navbar Override Buttons Specificities */
     .st-key-top_navbar [data-testid="stButton"] > button,
@@ -426,37 +428,39 @@ st.markdown(
         border-radius: 10px !important;
         background: transparent !important;
         background-color: transparent !important;
-        color: var(--color-text-muted) !important;
-        font-size: 0.95rem !important;
-        font-weight: 600 !important;
-        white-space: nowrap !important;
         box-shadow: none !important;
         transition: all 0.3s ease !important;
     }
+    /* Pastikan teks tombol Navbar juga di-override putih */
+    .st-key-top_navbar [data-testid="stButton"] p,
+    .st-key-top_navbar [data-testid="stPopover"] p {
+        color: #cbd5e1 !important; /* Agak redup saat tidak aktif */
+        font-weight: 600 !important;
+        text-shadow: none !important;
+    }
+    .st-key-top_navbar [data-testid="stButton"] > button:hover p,
+    .st-key-top_navbar [data-testid="stPopover"] button:hover p {
+        color: #ffffff !important; /* Putih bersih saat di-hover */
+    }
+    
     .st-key-top_navbar [data-testid="stButton"] > button:hover,
     .st-key-top_navbar [data-testid="stPopover"] button:hover {
-        background: rgba(255, 255, 255, 0.08) !important;
-        color: #ffffff !important;
-        border-color: rgba(255, 255, 255, 0.2) !important;
+        background: rgba(255, 255, 255, 0.1) !important;
+        border-color: rgba(255, 255, 255, 0.25) !important;
     }
+    
     /* Aktif State di Navbar */
     .st-key-top_navbar [data-testid="stButton"] > button[kind="primary"],
     .st-key-top_navbar [data-testid="stPopover"] button[kind="primary"] {
-        background: rgba(255, 255, 255, 0.1) !important;
+        background: rgba(255, 255, 255, 0.15) !important;
+        border: 1px solid rgba(255, 255, 255, 0.4) !important;
+        box-shadow: inset 0 0 20px rgba(255, 255, 255, 0.08) !important;
+    }
+    /* Teks Aktif di Navbar */
+    .st-key-top_navbar [data-testid="stButton"] > button[kind="primary"] p,
+    .st-key-top_navbar [data-testid="stPopover"] button[kind="primary"] p {
         color: #ffffff !important;
-        border: 1px solid rgba(255, 255, 255, 0.3) !important;
-        box-shadow: inset 0 0 15px rgba(255, 255, 255, 0.05) !important;
-    }
-    .st-key-top_navbar [data-testid="stButton"] p,
-    .st-key-top_navbar [data-testid="stButton"] span,
-    .st-key-top_navbar [data-testid="stPopover"] p,
-    .st-key-top_navbar [data-testid="stPopover"] span {
-        color: inherit !important;
-    }
-    .st-key-top_navbar [data-testid="stButton"] svg,
-    .st-key-top_navbar [data-testid="stPopover"] svg {
-        color: inherit !important;
-        fill: currentColor !important;
+        text-shadow: 0 0 8px rgba(255, 255, 255, 0.4) !important;
     }
 
     /* Mobile Responsive adjustments */
@@ -486,7 +490,7 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
-# --- AKHIR DARI UPDATE CSS KEDUA ---
+# --- AKHIR DARI UPDATE CSS ---
 
 active_page = st.session_state["active_page"]
 parent_active = active_page in {"Attack", "Recovery"}
