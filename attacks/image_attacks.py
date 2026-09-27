@@ -37,6 +37,10 @@ def apply_attack(image: Image.Image, attack: str) -> Image.Image:
         noisy = np.clip(arr.astype(np.float32) + noise, 0, 255).astype(np.uint8)
         return Image.fromarray(noisy)
 
+    if attack == "Gaussian Blur":
+        blurred = cv2.GaussianBlur(arr, (3, 3), sigmaX=0.8)
+        return Image.fromarray(blurred)
+
     if attack == "Brightness +20":
         return ImageEnhance.Brightness(image).enhance(1.20)
 

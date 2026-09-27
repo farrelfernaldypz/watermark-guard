@@ -34,7 +34,7 @@ def ber(expected, actual):
 def watermark_status(correlation, bit_error_rate):
     # Prototype thresholds; validate these cutoffs against measured experiment results.
     if correlation >= 0.80 and bit_error_rate <= 0.20:
-        return "Watermark Detected / Recovered"
+        return "Watermark Detected"
     if correlation >= 0.50 and bit_error_rate <= 0.50:
-        return "Watermark Partially Recovered"
+        return "Watermark Partially Detected"
     return "Watermark Not Detected"

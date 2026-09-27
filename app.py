@@ -1,4 +1,6 @@
 import io
+import hashlib
+import secrets
 
 import numpy as np
 import streamlit as st
@@ -6,7 +8,7 @@ from PIL import Image, UnidentifiedImageError
 
 from attacks.image_attacks import apply_attack
 from metrics.metrics import ber, normalized_correlation, psnr, watermark_status
-from watermark.dct_watermark import _text_bits, embed_watermark, extract_watermark
+from watermark.dwt_dct_watermark import embed_watermark, extract_watermark_by_key
 
 
 ATTACKS = [
@@ -16,6 +18,7 @@ ATTACKS = [
     "Crop 10%",
     "Resize 75%",
     "Gaussian Noise",
+    "Gaussian Blur",
     "Brightness +20",
     "Contrast 1.2",
 ]
@@ -24,20 +27,12 @@ ATTACKS = [
 def load_image(uploaded_file) -> Image.Image:
     """Decode an uploaded supported image and return an independent RGB image."""
     try:
+        uploaded_file.seek(0)
         image = Image.open(uploaded_file)
         image.load()
         return image.convert("RGB")
     except (UnidentifiedImageError, OSError, ValueError) as error:
         raise ValueError("File tidak dapat dibaca sebagai gambar PNG atau JPEG yang valid.") from error
-
-
-def get_recovery_metrics(image: Image.Image, expected_text: str, secret: str):
-    """Blindly extract a payload and compare it with the user's expected text."""
-    bits, extracted_text = extract_watermark(image, expected_text, secret)
-    expected_bits = _text_bits(expected_text)
-    correlation = normalized_correlation(expected_bits, bits)
-    bit_error_rate = ber(expected_bits, bits)
-    return extracted_text, correlation, bit_error_rate
 
 
 def image_bytes(image: Image.Image, image_format: str) -> bytes:
@@ -48,12 +43,6 @@ def image_bytes(image: Image.Image, image_format: str) -> bytes:
 
 def navigate_to(page: str) -> None:
     st.session_state["active_page"] = page
-    if page in {"Attack", "Recovery"}:
-        st.session_state["attack_recovery_section"] = page
-
-
-def navigate_to_selected_testing_page() -> None:
-    navigate_to(st.session_state["attack_recovery_section"])
 
 
 def render_status(kind: str, message: str) -> None:
@@ -66,6 +55,10 @@ def render_status(kind: str, message: str) -> None:
 st.set_page_config(page_title="WatermarkGuard", layout="wide")
 st.session_state.setdefault("active_page", "Create Watermark")
 st.session_state.setdefault("attack_mode", "Single Attack")
+st.session_state.setdefault("multiple_attack_results", [])
+st.session_state.setdefault("multiple_attack_signature", None)
+if st.session_state["active_page"] not in {"Create Watermark", "Detect Watermark", "Attack"}:
+    st.session_state["active_page"] = "Attack"
 
 # --- UI/UX CSS UPDATE KETIGA (AURORA GLASSMORPHISM POLISHED) ---
 st.markdown(
@@ -493,7 +486,6 @@ st.markdown(
 # --- AKHIR DARI UPDATE CSS ---
 
 active_page = st.session_state["active_page"]
-parent_active = active_page in {"Attack", "Recovery"}
 
 with st.container(key="top_navbar"):
     brand_column, create_column, detect_column, attack_column, mobile_column = st.columns(
@@ -529,29 +521,14 @@ with st.container(key="top_navbar"):
         )
 
     with attack_column:
-        with st.popover(
-            "Attack & Recovery  ▾",
-            type="primary" if parent_active else "secondary",
+        st.button(
+            "Attack",
+            type="primary" if active_page == "Attack" else "secondary",
             use_container_width=True,
-            key="nav_attack_recovery",
-        ):
-            st.button(
-                "Attack",
-                type="primary" if active_page == "Attack" else "secondary",
-                use_container_width=True,
-                key="nav_attack",
-                on_click=navigate_to,
-                args=("Attack",),
-            )
-            st.button(
-                "Recovery",
-                type="primary" if active_page == "Recovery" else "secondary",
-                use_container_width=True,
-                key="nav_recovery",
-                on_click=navigate_to,
-                args=("Recovery",),
-            )
-
+            key="nav_attack",
+            on_click=navigate_to,
+            args=("Attack",),
+        )
     with mobile_column:
         with st.popover("☰", use_container_width=True, key="mobile_menu"):
             st.button(
@@ -577,14 +554,6 @@ with st.container(key="top_navbar"):
                 key="mobile_nav_attack",
                 on_click=navigate_to,
                 args=("Attack",),
-            )
-            st.button(
-                "Recovery",
-                type="primary" if active_page == "Recovery" else "secondary",
-                use_container_width=True,
-                key="mobile_nav_recovery",
-                on_click=navigate_to,
-                args=("Recovery",),
             )
 
 
@@ -625,9 +594,8 @@ with st.container(key="wg_content"):
 
         with st.container(border=True):
             st.markdown('<div class="wg-section-heading">2. Watermark information</div>', unsafe_allow_html=True)
-            watermark_text = st.text_input("Watermark text / owner identity", "Farrel - NPM 43")
-            secret = st.text_input("Secret key", type="password", key="create_secret")
-            st.caption("The text is embedded invisibly using keyed DCT mid-frequency positions.")
+            watermark_text = st.text_input("Watermark text / owner identity", value="")
+            st.caption("The text is embedded invisibly using keyed hybrid DWT-DCT coefficients. A secure secret key is generated automatically.")
 
         create_clicked = st.button(
             "Create Watermark",
@@ -636,16 +604,16 @@ with st.container(key="wg_content"):
             use_container_width=True,
         )
         if create_clicked:
-            if not secret.strip():
-                show_error("Secret key wajib diisi.")
-            elif not watermark_text:
+            if not watermark_text:
                 show_error("Teks watermark wajib diisi.")
             else:
                 try:
                     with st.spinner("Creating watermark..."):
                         original = load_image(create_upload)
+                        secret = secrets.token_urlsafe(32)
                         watermarked, _ = embed_watermark(original, watermark_text, secret)
                         quality = psnr(np.asarray(original), np.asarray(watermarked))
+                    st.session_state["created_secret_key"] = secret
                     st.markdown("### Result")
                     with st.container(border=True):
                         left, right = st.columns(2)
@@ -675,8 +643,13 @@ with st.container(key="wg_content"):
                 except (ValueError, OSError, UnidentifiedImageError) as error:
                     show_error(str(error))
 
+        if st.session_state.get("created_secret_key"):
+            st.markdown("### Secret Key")
+            st.caption("Simpan key ini dengan aman. Key diperlukan untuk mendeteksi dan mengekstrak watermark.")
+            st.code(st.session_state["created_secret_key"], language=None)
+
     elif active_page == "Detect Watermark":
-        page_header("Detect Watermark", "Verify whether an image contains a valid watermark.")
+        page_header("Detect Watermark", "Extract the owner identity using its secret key.")
 
         with st.container(border=True):
             st.markdown('<div class="wg-section-heading">Image and verification details</div>', unsafe_allow_html=True)
@@ -690,10 +663,7 @@ with st.container(key="wg_content"):
                 except ValueError as error:
                     show_error(str(error))
             detect_secret = st.text_input("Secret key", type="password", key="detect_secret")
-            detect_expected = st.text_input(
-                "Expected watermark text", "Farrel - NPM 43", key="detect_expected"
-            )
-            st.caption("The original cover image is not required. Expected text is used to compare extracted bits.")
+            st.caption("Upload the watermarked image and enter the secret key used when it was created.")
             detect_clicked = st.button(
                 "Detect Watermark",
                 type="primary",
@@ -704,206 +674,179 @@ with st.container(key="wg_content"):
         if detect_clicked:
             if not detect_secret.strip():
                 show_error("Secret key wajib diisi.")
-            elif not detect_expected:
-                show_error("Expected watermark text wajib diisi untuk verifikasi.")
             else:
                 try:
                     with st.spinner("Checking watermark..."):
                         image = load_image(detect_upload)
-                        extracted, correlation, bit_error_rate = get_recovery_metrics(
-                            image, detect_expected, detect_secret
+                        extracted, integrity_bits, expected_integrity_bits = extract_watermark_by_key(
+                            image, detect_secret
                         )
-                        status = watermark_status(correlation, bit_error_rate)
+                        if integrity_bits is None or expected_integrity_bits is None:
+                            correlation = None
+                            bit_error_rate = None
+                            is_detected = False
+                        else:
+                            correlation = normalized_correlation(
+                                expected_integrity_bits, integrity_bits
+                            )
+                            bit_error_rate = ber(expected_integrity_bits, integrity_bits)
+                            is_detected = bool(
+                                extracted is not None
+                                and np.array_equal(integrity_bits, expected_integrity_bits)
+                            )
+                        status = "Watermark Detected" if is_detected else "Watermark Not Detected"
                     st.markdown("### Detection Result")
                     with st.container(border=True):
-                        if status == "Watermark Detected / Recovered":
+                        if status == "Watermark Detected":
                             show_status("detected", "✓ Watermark Detected")
-                        elif status == "Watermark Partially Recovered":
+                        elif status == "Watermark Partially Detected":
                             show_status("partial", "! Watermark Partially Detected · possibly altered")
                         else:
                             show_status("missing", "× Watermark Not Detected")
                         st.image(image, caption="Image checked", use_container_width=True)
                         first, second = st.columns(2)
-                        first.metric("NC · bit similarity", f"{correlation:.4f}")
-                        second.metric("BER · bit errors", f"{bit_error_rate:.4f}")
-                        st.markdown(f"**Expected watermark**  \n{detect_expected}")
-                        st.markdown(f"**Extracted preview**  \n{extracted or '(text unreadable)'}")
+                        first.metric("NC integrity tag similarity", f"{correlation:.4f}" if correlation is not None else "N/A")
+                        second.metric("BER integrity tag errors", f"{bit_error_rate:.4f}" if bit_error_rate is not None else "N/A")
+                        st.markdown("**Owner Identity**")
+                        st.markdown(f"{extracted if is_detected else '(not detected)'}")
                 except (ValueError, OSError, UnidentifiedImageError) as error:
                     show_error(str(error))
 
-    else:
-        testing_page = active_page
-        page_header("Attack & Recovery", "Test and recover your watermark after image manipulation.")
+    elif active_page == "Attack":
+        page_header("Attack", "Apply image attacks to test watermark robustness.")
+        st.markdown('<div class="wg-section-heading">Attack</div>', unsafe_allow_html=True)
+        st.caption("Test the robustness of your watermark against common image attacks.")
+        with st.container(border=True):
+            st.markdown('<div class="wg-section-heading">1. Watermarked image</div>', unsafe_allow_html=True)
+            attack_upload = st.file_uploader(
+                "Upload Watermarked Image", type=["png", "jpg", "jpeg"], key="attack_image"
+            )
+            if attack_upload:
+                try:
+                    attack_preview = load_image(attack_upload)
+                    st.image(attack_preview, caption=attack_upload.name, use_container_width=True)
+                except ValueError as error:
+                    show_error(str(error))
 
-        testing_page = st.radio(
-            "Attack & Recovery",
-            ["Attack", "Recovery"],
-            horizontal=True,
-            key="attack_recovery_section",
-            label_visibility="collapsed",
-            on_change=navigate_to_selected_testing_page,
-        )
-        if testing_page == "Attack":
-                st.markdown('<div class="wg-section-heading">Attack</div>', unsafe_allow_html=True)
-                st.caption("Test the robustness of your watermark against common image attacks.")
-                with st.container(border=True):
-                    st.markdown('<div class="wg-section-heading">1. Watermarked image</div>', unsafe_allow_html=True)
-                    attack_upload = st.file_uploader(
-                        "Upload Watermarked Image", type=["png", "jpg", "jpeg"], key="attack_image"
-                    )
-                    if attack_upload:
-                        try:
-                            attack_preview = load_image(attack_upload)
-                            st.image(attack_preview, caption=attack_upload.name, use_container_width=True)
-                        except ValueError as error:
-                            show_error(str(error))
+        with st.container(border=True):
+            st.markdown('<div class="wg-section-heading">2. Attack settings</div>', unsafe_allow_html=True)
+            mode = st.radio(
+                "Attack mode", ["Single Attack", "Multiple Attacks"], horizontal=True, key="attack_mode"
+            )
+            if mode == "Single Attack":
+                selected_attacks = [st.selectbox("Attack type", ATTACKS)]
+            else:
+                selected_attacks = st.multiselect("Attack types", ATTACKS, default=ATTACKS)
+            uploaded_bytes = attack_upload.getvalue() if attack_upload else None
+            upload_signature = (
+                attack_upload.name,
+                hashlib.sha256(uploaded_bytes).hexdigest(),
+            ) if attack_upload else None
+            attack_signature = (
+                upload_signature,
+                mode,
+                tuple(selected_attacks),
+            )
+            if st.session_state["multiple_attack_signature"] != attack_signature:
+                st.session_state["multiple_attack_results"] = []
+                st.session_state["multiple_attack_signature"] = attack_signature
+            attack_clicked = st.button(
+                "Apply Attack",
+                type="primary",
+                disabled=attack_upload is None,
+                use_container_width=True,
+            )
 
-                with st.container(border=True):
-                    st.markdown('<div class="wg-section-heading">2. Attack settings</div>', unsafe_allow_html=True)
-                    mode = st.radio(
-                        "Attack mode", ["Single Attack", "Multiple Attacks"], horizontal=True, key="attack_mode"
-                    )
-                    if mode == "Single Attack":
-                        selected_attacks = [st.selectbox("Attack type", ATTACKS)]
-                    else:
-                        selected_attacks = st.multiselect("Attack types", ATTACKS, default=ATTACKS)
-                    attack_secret = st.text_input(
-                        "Secret key · for NC / BER evaluation", type="password", key="attack_secret"
-                    )
-                    attack_expected = st.text_input(
-                        "Expected watermark text",
-                        "Farrel - NPM 43",
-                        key="attack_expected",
-                    )
-                    attack_clicked = st.button(
-                        "Apply Attack",
-                        type="primary",
-                        disabled=attack_upload is None,
-                        use_container_width=True,
-                    )
+        single_attack_result = None
+        if attack_clicked:
+            if not selected_attacks:
+                show_error("Pilih minimal satu jenis serangan.")
+            else:
+                try:
+                    watermarked = load_image(attack_upload)
+                    original_bytes = image_bytes(watermarked, "PNG")
+                    multiple_results = []
+                    if mode == "Multiple Attacks":
+                        st.session_state["multiple_attack_results"] = []
 
-                if attack_clicked:
-                    if not selected_attacks:
-                        show_error("Pilih minimal satu jenis serangan.")
-                    elif not attack_secret.strip() or not attack_expected:
-                        show_error("Secret key dan expected watermark text dibutuhkan untuk menghitung NC / BER.")
-                    else:
-                        try:
-                            watermarked = load_image(attack_upload)
-                            result_rows = []
-                            with st.spinner("Applying attack and measuring watermark..."):
-                                for index, attack_name in enumerate(selected_attacks, start=1):
-                                    attacked = apply_attack(watermarked, attack_name)
-                                    output_format = "JPEG" if attack_name.startswith("JPEG") else "PNG"
-                                    extension = "jpg" if output_format == "JPEG" else "png"
-                                    try:
-                                        extracted, correlation, bit_error_rate = get_recovery_metrics(
-                                            attacked, attack_expected, attack_secret
-                                        )
-                                        status = watermark_status(correlation, bit_error_rate)
-                                    except ValueError as error:
-                                        extracted = "Tidak dapat diekstrak: gambar terlalu kecil"
-                                        correlation, bit_error_rate = 0.0, 1.0
-                                        status = "Watermark Not Detected"
-                                        st.warning(f"{attack_name}: {error}")
+                    with st.spinner("Applying attack..."):
+                        for index, attack_name in enumerate(selected_attacks, start=1):
+                            attacked = apply_attack(watermarked, attack_name)
+                            output_format = "JPEG" if attack_name.startswith("JPEG") else "PNG"
+                            extension = "jpg" if output_format == "JPEG" else "png"
+                            result = {
+                                "attack_name": attack_name,
+                                "image_bytes": image_bytes(attacked, output_format),
+                                "file_name": f"attacked_{attack_name.lower().replace(' ', '_').replace('%', 'pct').replace('+', 'plus')}.{extension}",
+                                "mime_type": "image/jpeg" if output_format == "JPEG" else "image/png",
+                            }
 
-                                    attack_psnr = (
-                                        f"{psnr(np.asarray(watermarked), np.asarray(attacked)):.2f} dB"
-                                        if watermarked.size == attacked.size
-                                        else "N/A (dimensi berubah)"
-                                    )
-                                    result_rows.append(
-                                        {
-                                            "Attack": attack_name.split()[0],
-                                            "Parameter": " ".join(attack_name.split()[1:]) or attack_name,
-                                            "PSNR vs Watermarked": attack_psnr,
-                                            "NC": f"{correlation:.4f}",
-                                            "BER": f"{bit_error_rate:.4f}",
-                                            "Status": status,
-                                        }
-                                    )
-                                    if len(selected_attacks) == 1:
-                                        before, after = st.columns(2)
-                                        before.image(watermarked, caption="Before Attack", use_container_width=True)
-                                        after.image(attacked, caption=f"After Attack · {attack_name}", use_container_width=True)
-                                        st.caption(f"Extracted watermark: {extracted}")
-                                    else:
-                                        with st.expander(f"Result preview · {attack_name}"):
-                                            before, after = st.columns(2)
-                                            before.image(watermarked, caption="Before Attack", use_container_width=True)
-                                            after.image(attacked, caption=f"After Attack · {attack_name}", use_container_width=True)
-                                            st.caption(f"Extracted watermark: {extracted}")
-                                    st.download_button(
-                                        f"Download · {attack_name}",
-                                        image_bytes(attacked, output_format),
-                                        file_name=f"attacked_{attack_name.lower().replace(' ', '_').replace('%', 'pct').replace('+', 'plus')}.{extension}",
-                                        mime="image/jpeg" if output_format == "JPEG" else "image/png",
-                                        key=f"download_attack_{index}_{attack_name}",
-                                    )
+                            if mode == "Multiple Attacks":
+                                multiple_results.append(result)
+                            else:
+                                single_attack_result = {
+                                    "image": attacked,
+                                    "result": result,
+                                    "original": watermarked,
+                                }
 
-                            st.markdown("### Attack Result")
-                            st.caption("PSNR is shown only when input and output dimensions match.")
-                            st.table(result_rows)
-                        except (ValueError, OSError, UnidentifiedImageError) as error:
-                            show_error(str(error))
-        else:
-                st.markdown('<div class="wg-section-heading">Recovery</div>', unsafe_allow_html=True)
-                st.caption("Recover the embedded text from a watermarked or attacked image.")
-                with st.container(border=True):
-                    recovery_upload = st.file_uploader(
-                        "Upload Attacked Image", type=["png", "jpg", "jpeg"], key="recovery_image"
-                    )
-                    if recovery_upload:
-                        try:
-                            recovery_preview = load_image(recovery_upload)
-                            st.image(recovery_preview, caption=recovery_upload.name, use_container_width=True)
-                        except ValueError as error:
-                            show_error(str(error))
-                    recovery_secret = st.text_input("Secret key", type="password", key="recovery_secret")
-                    expected_text = st.text_input(
-                        "Expected watermark text", "Farrel - NPM 43", key="recovery_expected"
-                    )
-                    recovery_clicked = st.button(
-                        "Recover Watermark",
-                        type="primary",
-                        disabled=recovery_upload is None,
-                        use_container_width=True,
-                    )
+                    if mode == "Multiple Attacks":
+                        st.session_state["multiple_attack_results"] = [
+                            {
+                                **result,
+                                "original_bytes": original_bytes,
+                            }
+                            for result in multiple_results
+                        ]
+                except (ValueError, OSError, UnidentifiedImageError) as error:
+                    show_error(str(error))
 
-                if recovery_clicked:
-                    if not recovery_secret.strip():
-                        show_error("Secret key wajib diisi.")
-                    elif not expected_text:
-                        show_error("Expected watermark text wajib diisi untuk perhitungan NC dan BER.")
-                    else:
-                        try:
-                            with st.spinner("Extracting watermark..."):
-                                image = load_image(recovery_upload)
-                                extracted, correlation, bit_error_rate = get_recovery_metrics(
-                                    image, expected_text, recovery_secret
-                                )
-                                status = watermark_status(correlation, bit_error_rate)
-                            st.markdown("### Recovery Result")
-                            with st.container(border=True):
-                                before, details = st.columns([1.4, 1])
-                                before.image(image, caption="Uploaded image", use_container_width=True)
-                                with details:
-                                    st.markdown("**Expected watermark**")
-                                    st.write(expected_text)
-                                    st.markdown("**Recovered watermark**")
-                                    st.write(extracted or "(text unreadable)")
-                                    st.metric("NC", f"{correlation:.4f}")
-                                    st.metric("BER", f"{bit_error_rate:.4f}")
-                                if status == "Watermark Detected / Recovered":
-                                    show_status("detected", "✓ Watermark Recovered")
-                                elif status == "Watermark Partially Recovered":
-                                    show_status("partial", "Watermark Partially Recovered")
-                                else:
-                                    show_status("missing", "× Watermark Not Recovered")
-                        except (ValueError, OSError, UnidentifiedImageError) as error:
-                            show_error(str(error))
-
+        if mode == "Multiple Attacks":
+            multiple_results = st.session_state["multiple_attack_results"]
+            if multiple_results:
+                st.markdown("### Multiple Attack Results")
+                for index, result in enumerate(multiple_results, start=1):
+                    with st.expander(f"{index}. {result['attack_name']}"):
+                        before, after = st.columns(2)
+                        before.image(
+                            result["original_bytes"],
+                            caption="Original Watermarked Image",
+                            use_container_width=True,
+                        )
+                        after.image(
+                            result["image_bytes"],
+                            caption="Attacked Image",
+                            use_container_width=True,
+                        )
+                        st.download_button(
+                            f"Download · {result['attack_name']}",
+                            data=result["image_bytes"],
+                            file_name=result["file_name"],
+                            mime=result["mime_type"],
+                            key=f"download_multiple_attack_{index}_{result['attack_name']}",
+                        )
+        elif single_attack_result is not None:
+            st.markdown("### Attack Result")
+            before, after = st.columns(2)
+            before.image(
+                single_attack_result["original"],
+                caption="Original Watermarked Image",
+                use_container_width=True,
+            )
+            after.image(
+                single_attack_result["image"],
+                caption="Attacked Image",
+                use_container_width=True,
+            )
+            result = single_attack_result["result"]
+            st.download_button(
+                f"Download · {result['attack_name']}",
+                data=result["image_bytes"],
+                file_name=result["file_name"],
+                mime=result["mime_type"],
+                key=f"download_single_attack_{result['attack_name']}",
+            )
     st.markdown(
-        '<footer class="wg-footer">WatermarkGuard - Digital Watermark Protection - Robust DCT</footer>',
+        '<footer class="wg-footer">WatermarkGuard - Digital Watermark Protection - Hybrid DWT-DCT</footer>',
         unsafe_allow_html=True,
     )
