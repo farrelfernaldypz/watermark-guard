@@ -57,6 +57,14 @@ st.session_state.setdefault("active_page", "Create Watermark")
 st.session_state.setdefault("attack_mode", "Single Attack")
 st.session_state.setdefault("multiple_attack_results", [])
 st.session_state.setdefault("multiple_attack_signature", None)
+st.session_state.setdefault("created_watermark_results", [])
+st.session_state.setdefault("created_watermark_signature", None)
+st.session_state.pop("create_images", None)
+st.session_state.pop("create_upload_generation", None)
+st.session_state.pop("create_upload_overflow", None)
+for state_key in tuple(st.session_state.keys()):
+    if state_key.startswith("create_images_uploader_"):
+        st.session_state.pop(state_key, None)
 if st.session_state["active_page"] not in {"Create Watermark", "Detect Watermark", "Attack"}:
     st.session_state["active_page"] = "Attack"
 
@@ -258,6 +266,39 @@ st.markdown(
         border: 2px dashed rgba(255, 255, 255, 0.2) !important;
         border-radius: 12px;
         transition: all 0.3s ease;
+    }
+    .st-key-create_image [data-testid="stFileUploaderDropzone"] {
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+    }
+    .st-key-detect_image [data-testid="stFileUploaderDropzone"] {
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+    }
+    .st-key-attack_image [data-testid="stFileUploaderDropzone"] {
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+    }
+    .st-key-create_image [data-testid="stFileUploaderDropzoneInstructions"] {
+        flex: 0 1 auto;
+        justify-content: center;
+        text-align: center;
+    }
+    .st-key-detect_image [data-testid="stFileUploaderDropzoneInstructions"] {
+        flex: 0 1 auto;
+        justify-content: center;
+        text-align: center;
+    }
+    .st-key-attack_image [data-testid="stFileUploaderDropzoneInstructions"] {
+        flex: 0 1 auto;
+        justify-content: center;
+        text-align: center;
     }
     [data-testid="stFileUploaderDropzone"]:hover {
         border-color: #e879f9 !important;
@@ -583,19 +624,43 @@ with st.container(key="wg_content"):
             st.markdown('<div class="wg-section-heading">1. Cover image</div>', unsafe_allow_html=True)
             st.caption("Choose the image that will carry the watermark.")
             create_upload = st.file_uploader(
-                "Upload Cover Image", type=["png", "jpg", "jpeg"], key="create_image"
+                "Upload Cover Image",
+                type=["png", "jpg", "jpeg"],
+                accept_multiple_files=False,
+                key="create_image",
             )
             if create_upload:
                 try:
                     cover_preview = load_image(create_upload)
-                    st.image(cover_preview, caption=f"{create_upload.name}", use_container_width=True)
+                    preview_columns = st.columns([1, 2, 1])
+                    preview_columns[1].image(
+                        cover_preview,
+                        caption=create_upload.name,
+                        width="stretch",
+                    )
                 except ValueError as error:
                     show_error(str(error))
 
         with st.container(border=True):
             st.markdown('<div class="wg-section-heading">2. Watermark information</div>', unsafe_allow_html=True)
-            watermark_text = st.text_input("Watermark text / owner identity", value="")
+            watermark_text = st.text_input(
+                "Watermark text / owner identity",
+                value="",
+                key="watermark_text",
+                autocomplete="off",
+            )
             st.caption("The text is embedded invisibly using keyed hybrid DWT-DCT coefficients. A secure secret key is generated automatically.")
+
+        upload_signature = (
+            (create_upload.name, hashlib.sha256(create_upload.getvalue()).hexdigest())
+            if create_upload
+            else None
+        )
+        create_signature = (upload_signature, watermark_text)
+        if st.session_state["created_watermark_signature"] != create_signature:
+            st.session_state["created_watermark_results"] = []
+            st.session_state["created_secret_key"] = None
+            st.session_state["created_watermark_signature"] = create_signature
 
         create_clicked = st.button(
             "Create Watermark",
@@ -607,41 +672,90 @@ with st.container(key="wg_content"):
             if not watermark_text:
                 show_error("Teks watermark wajib diisi.")
             else:
-                try:
-                    with st.spinner("Creating watermark..."):
+                secret = secrets.token_urlsafe(32)
+                created_results = []
+                with st.spinner("Creating watermarks..."):
+                    try:
                         original = load_image(create_upload)
-                        secret = secrets.token_urlsafe(32)
-                        watermarked, _ = embed_watermark(original, watermark_text, secret)
-                        quality = psnr(np.asarray(original), np.asarray(watermarked))
-                    st.session_state["created_secret_key"] = secret
-                    st.markdown("### Result")
-                    with st.container(border=True):
-                        left, right = st.columns(2)
-                        left.image(original, caption="Original Image", use_container_width=True)
-                        right.image(watermarked, caption="Watermarked Image", use_container_width=True)
-                        metric_column, info_column = st.columns([1, 2])
-                        metric_column.metric("PSNR", f"{quality:.2f} dB")
-                        info_column.markdown(f"**Watermark created**  \n{watermark_text}")
-                        show_status("detected", "✓ Watermark Created")
-                        with st.expander("View watermark effect"):
-                            original_array = np.asarray(original).astype(np.int16)
-                            watermarked_array = np.asarray(watermarked).astype(np.int16)
-                            difference = np.max(np.abs(original_array - watermarked_array), axis=2)
-                            difference_map = np.clip(difference * 8, 0, 255).astype(np.uint8)
-                            st.image(
-                                difference_map,
-                                caption="Difference map · changes amplified for visualization",
-                                clamp=True,
-                                use_container_width=True,
-                            )
-                        st.download_button(
-                            "Download Watermarked Image",
-                            image_bytes(watermarked, "PNG"),
-                            file_name="watermarked.png",
-                            mime="image/png",
+                        watermarked, _ = embed_watermark(
+                            original, watermark_text, secret
                         )
-                except (ValueError, OSError, UnidentifiedImageError) as error:
-                    show_error(str(error))
+                        original_array = np.asarray(original)
+                        watermarked_array = np.asarray(watermarked)
+                        difference = np.max(
+                            np.abs(
+                                original_array.astype(np.int16)
+                                - watermarked_array.astype(np.int16)
+                            ),
+                            axis=2,
+                        )
+                        difference_map = np.clip(difference * 8, 0, 255).astype(
+                            np.uint8
+                        )
+                        created_results.append(
+                            {
+                                "name": create_upload.name,
+                                "original_bytes": image_bytes(original, "PNG"),
+                                "watermarked_bytes": image_bytes(watermarked, "PNG"),
+                                "difference_bytes": image_bytes(
+                                    Image.fromarray(difference_map), "PNG"
+                                ),
+                                "psnr": psnr(original_array, watermarked_array),
+                                "error": None,
+                            }
+                        )
+                    except (ValueError, OSError, UnidentifiedImageError) as error:
+                        created_results.append(
+                            {
+                                "name": create_upload.name,
+                                "error": str(error),
+                            }
+                        )
+                st.session_state["created_watermark_results"] = created_results
+                st.session_state["created_secret_key"] = secret if any(
+                    result["error"] is None for result in created_results
+                ) else None
+
+        created_results = st.session_state["created_watermark_results"]
+        if created_results:
+            st.markdown("### Results")
+            for index, result in enumerate(created_results, start=1):
+                with st.container(border=True):
+                    st.markdown(f"#### {result['name']}")
+                    if result["error"]:
+                        show_error(result["error"])
+                        continue
+
+                    original_column, watermarked_column = st.columns(2)
+                    original_column.image(
+                        result["original_bytes"],
+                        caption="Original Image",
+                        width="stretch",
+                    )
+                    watermarked_column.image(
+                        result["watermarked_bytes"],
+                        caption="Watermarked Image",
+                        width="stretch",
+                    )
+                    metric_column, info_column = st.columns([1, 2])
+                    metric_column.metric("PSNR", f"{result['psnr']:.2f} dB")
+                    info_column.markdown(f"**Watermark created**  \n{watermark_text}")
+                    show_status("detected", "\u2713 Watermark Created")
+                    with st.expander("View watermark effect"):
+                        effect_preview_columns = st.columns([1, 2, 1])
+                        effect_preview_columns[1].image(
+                            result["difference_bytes"],
+                            caption="Difference map \u00b7 changes amplified for visualization",
+                            width="stretch",
+                        )
+                    file_stem = result["name"].rsplit(".", 1)[0]
+                    st.download_button(
+                        "Download Watermarked Image",
+                        data=result["watermarked_bytes"],
+                        file_name=f"{file_stem}_watermarked.png",
+                        mime="image/png",
+                        key=f"download_created_image_{index}",
+                    )
 
         if st.session_state.get("created_secret_key"):
             st.markdown("### Secret Key")
@@ -659,7 +773,12 @@ with st.container(key="wg_content"):
             if detect_upload:
                 try:
                     detect_preview = load_image(detect_upload)
-                    st.image(detect_preview, caption=detect_upload.name, use_container_width=True)
+                    detect_preview_columns = st.columns([1, 2, 1])
+                    detect_preview_columns[1].image(
+                        detect_preview,
+                        caption=detect_upload.name,
+                        width="stretch",
+                    )
                 except ValueError as error:
                     show_error(str(error))
             detect_secret = st.text_input("Secret key", type="password", key="detect_secret")
@@ -703,7 +822,12 @@ with st.container(key="wg_content"):
                             show_status("partial", "! Watermark Partially Detected · possibly altered")
                         else:
                             show_status("missing", "× Watermark Not Detected")
-                        st.image(image, caption="Image checked", use_container_width=True)
+                        result_preview_columns = st.columns([1, 2, 1])
+                        result_preview_columns[1].image(
+                            image,
+                            caption="Image checked",
+                            width="stretch",
+                        )
                         first, second = st.columns(2)
                         first.metric("NC integrity tag similarity", f"{correlation:.4f}" if correlation is not None else "N/A")
                         second.metric("BER integrity tag errors", f"{bit_error_rate:.4f}" if bit_error_rate is not None else "N/A")
@@ -724,7 +848,12 @@ with st.container(key="wg_content"):
             if attack_upload:
                 try:
                     attack_preview = load_image(attack_upload)
-                    st.image(attack_preview, caption=attack_upload.name, use_container_width=True)
+                    attack_preview_columns = st.columns([1, 2, 1])
+                    attack_preview_columns[1].image(
+                        attack_preview,
+                        caption=attack_upload.name,
+                        width="stretch",
+                    )
                 except ValueError as error:
                     show_error(str(error))
 
@@ -811,12 +940,12 @@ with st.container(key="wg_content"):
                         before.image(
                             result["original_bytes"],
                             caption="Original Watermarked Image",
-                            use_container_width=True,
+                            width="stretch",
                         )
                         after.image(
                             result["image_bytes"],
                             caption="Attacked Image",
-                            use_container_width=True,
+                            width="stretch",
                         )
                         st.download_button(
                             f"Download · {result['attack_name']}",
@@ -831,12 +960,12 @@ with st.container(key="wg_content"):
             before.image(
                 single_attack_result["original"],
                 caption="Original Watermarked Image",
-                use_container_width=True,
+                width="stretch",
             )
             after.image(
                 single_attack_result["image"],
                 caption="Attacked Image",
-                use_container_width=True,
+                width="stretch",
             )
             result = single_attack_result["result"]
             st.download_button(
