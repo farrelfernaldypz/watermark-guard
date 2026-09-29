@@ -3,6 +3,9 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .env
+.watermarkguard/
+*.sqlite3
+*.sqlite3.key
 
 # Laporan & arsip lokal (jangan ikut ke repo kode)
 laporan/

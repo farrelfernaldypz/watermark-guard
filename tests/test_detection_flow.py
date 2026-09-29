@@ -35,3 +35,8 @@ def test_detect_page_extracts_owner_identity_from_uploaded_watermark():
     ]
     assert any("Watermark Detected" in element.value for element in app.markdown)
     assert all(button.label != "Recovery" for button in app.button)
+
+    app.text_input(key="detect_secret").set_value("incorrect-key").run()
+    app.button[-1].click().run()
+
+    assert any("Watermark Not Detected" in element.value for element in app.markdown)

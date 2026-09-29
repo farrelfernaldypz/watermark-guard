@@ -1,10 +1,12 @@
 import io
 from pathlib import Path
 
+import numpy as np
 from PIL import Image
 from streamlit.testing.v1 import AppTest
 
 from attacks import image_attacks
+from watermark.dwt_dct_watermark import embed_watermark, extract_watermark_by_key
 
 
 def test_multiple_attack_results_remain_after_rerun(monkeypatch):
@@ -17,8 +19,12 @@ def test_multiple_attack_results_remain_after_rerun(monkeypatch):
 
     monkeypatch.setattr(image_attacks, "apply_attack", track_attack)
 
+    secret = "robust-eval-key"
+    owner = "Robust Owner"
+    pixels = np.random.default_rng(17).integers(0, 256, (512, 512, 3), dtype=np.uint8)
+    watermarked, _ = embed_watermark(Image.fromarray(pixels), owner, secret)
     buffer = io.BytesIO()
-    Image.new("RGB", (512, 512), color="white").save(buffer, format="PNG")
+    watermarked.save(buffer, format="PNG")
     uploaded_image = buffer.getvalue()
 
     app_path = Path(__file__).resolve().parents[1] / "app.py"
@@ -58,6 +64,17 @@ def test_multiple_attack_results_remain_after_rerun(monkeypatch):
         "attacked_contrast_1.2_foto_pemandangan.png",
     ]
     assert applied_attacks == selected_attacks
+    detection_results = []
+    for result in first_results:
+        attacked_image = Image.open(io.BytesIO(result["image_bytes"])).convert("RGB")
+        extracted, observed_tag, expected_tag = extract_watermark_by_key(attacked_image, secret)
+        detection_results.append(
+            extracted == owner
+            and observed_tag is not None
+            and expected_tag is not None
+            and np.array_equal(observed_tag, expected_tag)
+        )
+    assert detection_results == [attack != "Crop 10%" for attack in selected_attacks]
     saved_image_bytes = [result["image_bytes"] for result in first_results]
     assert len(app.get("download_button")) == len(selected_attacks)
 
