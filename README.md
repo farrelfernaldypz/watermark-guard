@@ -42,6 +42,14 @@ pip install -r requirements.txt
 python -m streamlit run app.py
 ```
 
+## Penyimpanan Secret Key
+
+Secret Key dibuat dengan generator acak kriptografis dan dicatat di SQLite pada `watermark_registry`. Fingerprint SHA-256 menjadi primary key unik; nilai Secret Key disimpan terenkripsi. Di local development, database dan kunci enkripsinya berada di `.watermarkguard/` pada folder project. Direktori dibuat otomatis. `WATERMARK_DB_PATH` dapat dipakai untuk memilih file database lokal tertentu.
+
+Untuk Railway, tambahkan **Volume** ke service dan mount di `/data`. Atur variable `SECRET_KEY_STORAGE_PATH=/data`. Database (`watermarkguard.sqlite3`) dan file kunci enkripsi (`watermarkguard.sqlite3.key`) dibuat di volume tersebut, sehingga keduanya tetap ada setelah restart dan redeploy. Pastikan path itu menunjuk ke mount volume yang sama setiap deploy. Anda juga dapat mengatur `WATERMARK_ENCRYPTION_KEY` ke Fernet key yang sama secara permanen; jika tidak disetel, aplikasi membuat dan menyimpan kunci enkripsi di volume. Jangan mengganti atau menghapus kunci enkripsi yang sudah dipakai untuk database.
+
+Tanpa volume, Railway filesystem bersifat sementara dan tidak dapat menjamin Secret Key tetap tersedia setelah restart/redeploy. Buat volume dan set `SECRET_KEY_STORAGE_PATH` sebelum memakai Create Watermark di production. `RAILWAY_VOLUME_MOUNT_PATH` juga didukung bila Anda memilih memakai path mount Railway secara langsung. Aplikasi menampilkan pesan generik jika storage persisten tidak terkonfigurasi; alasan teknis dicatat di log service.
+
 ## Workflow Demo
 
 1. **Create Watermark:** unggah gambar, masukkan identitas, buat watermark, lalu simpan Secret Key dan `watermarked.png`.

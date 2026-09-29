@@ -1,5 +1,7 @@
 import io
 import hashlib
+import json
+import logging
 import re
 from pathlib import Path
 
@@ -24,6 +26,7 @@ ATTACKS = [
     "Brightness +20",
     "Contrast 1.2",
 ]
+logger = logging.getLogger(__name__)
 
 
 def load_image(uploaded_file) -> Image.Image:
@@ -60,6 +63,37 @@ def render_status(kind: str, message: str) -> None:
         f'<div class="wg-status wg-status-{kind}"><span>{message}</span></div>',
         unsafe_allow_html=True,
     )
+
+
+def render_copy_secret_key(secret_key: str) -> None:
+    """Render a browser-side button that copies the displayed secret key."""
+    encoded_key = json.dumps(secret_key)
+    button_html = f"""
+    <button id="copy-secret-key" type="button" style="
+        padding: 0.5rem 0.9rem; border: 1px solid #8b5cf6; border-radius: 0.5rem;
+        background: #4f46e5; color: white; font: inherit; cursor: pointer;
+    ">Copy Secret Key</button>
+    <span id="copy-secret-key-status" aria-live="polite" style="margin-left: 0.6rem;"></span>
+    <script>
+      const secretKey = {encoded_key};
+      const copyButton = document.getElementById("copy-secret-key");
+      const copyStatus = document.getElementById("copy-secret-key-status");
+      copyButton.addEventListener("click", async () => {{
+        try {{
+          await navigator.clipboard.writeText(secretKey);
+        }} catch (error) {{
+          const field = document.createElement("textarea");
+          field.value = secretKey;
+          document.body.appendChild(field);
+          field.select();
+          document.execCommand("copy");
+          field.remove();
+        }}
+        copyStatus.textContent = "Copied";
+      }});
+    </script>
+    """
+    st.components.v1.html(button_html, height=48)
 
 
 st.set_page_config(page_title="WatermarkGuard", layout="wide")
@@ -726,6 +760,10 @@ with st.container(key="wg_content"):
                         UnidentifiedImageError,
                         SecretKeyRegistryError,
                     ) as error:
+                        if isinstance(error, SecretKeyRegistryError):
+                            logger.exception(
+                                "Secret Key persistence failed during watermark creation"
+                            )
                         if reserved_key_fingerprint is not None:
                             try:
                                 registry.mark_failed(reserved_key_fingerprint)
@@ -795,6 +833,7 @@ with st.container(key="wg_content"):
             st.markdown("### Secret Key")
             st.caption("Klik ikon salin pada blok kode untuk menyalin Secret Key. Simpan key ini dengan aman.")
             st.code(st.session_state["created_secret_key"], language=None)
+            render_copy_secret_key(st.session_state["created_secret_key"])
 
     elif active_page == "Detect Watermark":
         page_header("Detect Watermark", "Extract the owner identity using its secret key.")

@@ -154,3 +154,42 @@ def test_railway_registry_uses_mounted_volume(tmp_path, monkeypatch):
 
     assert (tmp_path / "watermarkguard.sqlite3").exists()
     assert registry.is_registered(credential.secret_key)
+
+
+def test_configured_storage_path_persists_database_and_encryption_key(tmp_path, monkeypatch):
+    storage_path = tmp_path / "nested" / "persistent-storage"
+    monkeypatch.delenv("RAILWAY_ENVIRONMENT", raising=False)
+    monkeypatch.delenv("RAILWAY_PROJECT_ID", raising=False)
+    monkeypatch.delenv("RAILWAY_SERVICE_ID", raising=False)
+    monkeypatch.delenv("RAILWAY_VOLUME_MOUNT_PATH", raising=False)
+    monkeypatch.delenv("WATERMARK_DB_PATH", raising=False)
+    monkeypatch.delenv("WATERMARK_ENCRYPTION_KEY", raising=False)
+    monkeypatch.setenv("SECRET_KEY_STORAGE_PATH", str(storage_path))
+
+    registry = SecretKeyRegistry.from_environment()
+    credential = registry.create_pending("Configured Storage Owner")
+    registry.activate(credential.key_fingerprint)
+
+    restarted_registry = SecretKeyRegistry.from_environment()
+
+    assert registry.database_path == storage_path / "watermarkguard.sqlite3"
+    assert registry.database_path.exists()
+    assert registry.database_path.with_suffix(".sqlite3.key").exists()
+    assert restarted_registry.is_registered(credential.secret_key)
+
+
+def test_railway_uses_secret_key_storage_path_without_extra_encryption_variable(
+    tmp_path, monkeypatch
+):
+    storage_path = tmp_path / "railway-volume"
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
+    monkeypatch.delenv("RAILWAY_VOLUME_MOUNT_PATH", raising=False)
+    monkeypatch.delenv("WATERMARK_ENCRYPTION_KEY", raising=False)
+    monkeypatch.setenv("SECRET_KEY_STORAGE_PATH", str(storage_path))
+
+    registry = SecretKeyRegistry.from_environment()
+    credential = registry.create_pending("Railway Storage Owner")
+    registry.activate(credential.key_fingerprint)
+
+    assert registry.database_path.parent == storage_path
+    assert registry.is_registered(credential.secret_key)

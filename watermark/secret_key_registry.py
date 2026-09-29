@@ -48,6 +48,7 @@ class SecretKeyRegistry:
     def from_environment(cls, project_root: Path | None = None) -> "SecretKeyRegistry":
         """Build the registry from local settings or a Railway persistent volume."""
         root = project_root or Path(__file__).resolve().parents[1]
+        configured_storage_path = os.environ.get("SECRET_KEY_STORAGE_PATH")
         volume_path = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
         is_railway = bool(volume_path) or any(
             os.environ.get(name)
@@ -57,31 +58,27 @@ class SecretKeyRegistry:
                 "RAILWAY_SERVICE_ID",
             )
         )
-        if is_railway:
-            if not volume_path:
+        if configured_storage_path:
+            storage_path = Path(configured_storage_path).expanduser()
+            if is_railway and not storage_path.is_absolute():
                 raise SecretKeyRegistryError(
-                    "Persistent application storage is not configured."
+                    "Persistent application storage must use an absolute path."
                 )
+            database_path = storage_path / "watermarkguard.sqlite3"
+        elif volume_path:
             database_path = Path(volume_path) / "watermarkguard.sqlite3"
-            encryption_key = os.environ.get("WATERMARK_ENCRYPTION_KEY")
-            if not encryption_key:
-                raise SecretKeyRegistryError(
-                    "Persistent Secret Key storage is not configured."
-                )
-            try:
-                encoded_key = encryption_key.encode("ascii")
-            except UnicodeEncodeError as error:
-                raise SecretKeyRegistryError(
-                    "Persistent Secret Key storage is not configured."
-                ) from error
-            return cls(database_path, encoded_key)
+        elif is_railway:
+            raise SecretKeyRegistryError(
+                "Persistent application storage is not configured."
+            )
+        else:
+            configured_path = os.environ.get("WATERMARK_DB_PATH")
+            database_path = (
+                Path(configured_path).expanduser()
+                if configured_path
+                else root / ".watermarkguard" / "watermarkguard.sqlite3"
+            )
 
-        configured_path = os.environ.get("WATERMARK_DB_PATH")
-        database_path = (
-            Path(configured_path)
-            if configured_path
-            else root / ".watermarkguard" / "watermarkguard.sqlite3"
-        )
         configured_key = os.environ.get("WATERMARK_ENCRYPTION_KEY")
         if configured_key:
             try:

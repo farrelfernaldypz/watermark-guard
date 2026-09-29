@@ -58,13 +58,33 @@ def test_create_single_upload_replaces_previous_image_and_processes_one():
             "SELECT COUNT(*) FROM watermark_registry"
         ).fetchone()[0]
 
+    app.button(key="create_watermark").click().run()
+    second_secret_key = app.session_state["created_secret_key"]
+    assert second_secret_key
+    assert second_secret_key != first_secret_key
+    assert registry.is_registered(second_secret_key)
+
     app.run()
-    assert app.session_state["created_secret_key"] == first_secret_key
+    assert app.session_state["created_secret_key"] == second_secret_key
     assert registry.is_registered(first_secret_key)
+    assert registry.is_registered(second_secret_key)
     with sqlite3.connect(registry.database_path) as connection:
         assert connection.execute(
             "SELECT COUNT(*) FROM watermark_registry"
-        ).fetchone()[0] == registered_count
+        ).fetchone()[0] == registered_count + 1
+
+    app.session_state["active_page"] = "Attack"
+    app.run()
+    app.file_uploader(key="attack_image").set_value(
+        (
+            "watermarked.png",
+            app.session_state["created_watermark_results"][0]["watermarked_bytes"],
+            "image/png",
+        )
+    ).run()
+    app.button[-1].click().run()
+    assert app.session_state["created_secret_key"] == second_secret_key
+
     assert not any(element.label == "Watermark ID" for element in app.text_input)
     assert not any(button.label == "Retrieve Secret Key" for button in app.button)
     assert not any("Recover Secret Key" in element.value for element in app.markdown)
