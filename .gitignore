@@ -3,3 +3,11 @@ __pycache__/
 .pytest_cache/
 *.pyc
 .env
+
+# Laporan & arsip lokal (jangan ikut ke repo kode)
+laporan/
+_archive/
+.pemweb_images/
+.wg_images/
+doc_screenshots/
+report_assets/
