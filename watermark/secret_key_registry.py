@@ -23,6 +23,8 @@ class SecretKeyCredential:
 class SecretKeyRegistry:
     """Persistent registry for unique, encrypted watermark secret keys."""
 
+    RAILWAY_STORAGE_ROOT = Path("/data")
+
     def __init__(self, database_path: Path, encryption_key: bytes) -> None:
         self.database_path = database_path
         try:
@@ -46,11 +48,10 @@ class SecretKeyRegistry:
 
     @classmethod
     def from_environment(cls, project_root: Path | None = None) -> "SecretKeyRegistry":
-        """Build the registry from local settings or a Railway persistent volume."""
+        """Use Railway's persistent mount in production and project storage locally."""
         root = project_root or Path(__file__).resolve().parents[1]
         configured_storage_path = os.environ.get("SECRET_KEY_STORAGE_PATH")
-        volume_path = os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")
-        is_railway = bool(volume_path) or any(
+        is_railway = bool(os.environ.get("RAILWAY_VOLUME_MOUNT_PATH")) or any(
             os.environ.get(name)
             for name in (
                 "RAILWAY_ENVIRONMENT",
@@ -58,26 +59,32 @@ class SecretKeyRegistry:
                 "RAILWAY_SERVICE_ID",
             )
         )
+        environment = next(
+            (
+                os.environ.get(name, "").strip().lower()
+                for name in ("APP_ENV", "ENVIRONMENT", "ENV", "NODE_ENV")
+                if os.environ.get(name)
+            ),
+            "",
+        )
+        is_production = is_railway or environment == "production"
+
         if configured_storage_path:
-            storage_path = Path(configured_storage_path).expanduser()
-            if is_railway and not storage_path.is_absolute():
+            storage_root = Path(configured_storage_path).expanduser()
+            if is_production and not storage_root.is_absolute():
                 raise SecretKeyRegistryError(
                     "Persistent application storage must use an absolute path."
                 )
-            database_path = storage_path / "watermarkguard.sqlite3"
-        elif volume_path:
-            database_path = Path(volume_path) / "watermarkguard.sqlite3"
-        elif is_railway:
-            raise SecretKeyRegistryError(
-                "Persistent application storage is not configured."
-            )
+            database_path = storage_root / "watermarkguard.sqlite3"
+        elif is_production:
+            database_path = cls.RAILWAY_STORAGE_ROOT / "watermarkguard.sqlite3"
         else:
             configured_path = os.environ.get("WATERMARK_DB_PATH")
-            database_path = (
-                Path(configured_path).expanduser()
-                if configured_path
-                else root / ".watermarkguard" / "watermarkguard.sqlite3"
-            )
+            if configured_path:
+                database_path = Path(configured_path).expanduser()
+            else:
+                storage_root = root / ".watermarkguard"
+                database_path = storage_root / "watermarkguard.sqlite3"
 
         configured_key = os.environ.get("WATERMARK_ENCRYPTION_KEY")
         if configured_key:
@@ -88,11 +95,11 @@ class SecretKeyRegistry:
                     "WATERMARK_ENCRYPTION_KEY harus berupa Fernet key yang valid."
                 ) from error
         else:
-            encryption_key = cls._load_or_create_local_encryption_key(database_path)
+            encryption_key = cls._load_or_create_encryption_key(database_path)
         return cls(database_path, encryption_key)
 
     @staticmethod
-    def _load_or_create_local_encryption_key(database_path: Path) -> bytes:
+    def _load_or_create_encryption_key(database_path: Path) -> bytes:
         key_path = database_path.with_suffix(database_path.suffix + ".key")
         try:
             key_path.parent.mkdir(parents=True, exist_ok=True)
@@ -110,7 +117,7 @@ class SecretKeyRegistry:
             return key_path.read_bytes().strip()
         except OSError as error:
             raise SecretKeyRegistryError(
-                "Encryption key lokal tidak dapat disiapkan."
+                "Encryption key tidak dapat disiapkan di storage persisten."
             ) from error
 
     def _connect(self) -> sqlite3.Connection:

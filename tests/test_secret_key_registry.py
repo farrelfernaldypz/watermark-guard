@@ -135,24 +135,38 @@ def test_legacy_watermark_id_column_is_migrated_away_without_losing_keys(tmp_pat
     assert "watermark_id" not in column_names
 
 
-def test_railway_requires_persistent_volume_instead_of_ephemeral_filesystem(monkeypatch):
+def test_railway_defaults_to_persistent_data_directory_and_creates_it(
+    tmp_path, monkeypatch
+):
     monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
     monkeypatch.delenv("RAILWAY_VOLUME_MOUNT_PATH", raising=False)
+    monkeypatch.delenv("SECRET_KEY_STORAGE_PATH", raising=False)
+    monkeypatch.delenv("WATERMARK_ENCRYPTION_KEY", raising=False)
+    monkeypatch.setattr(SecretKeyRegistry, "RAILWAY_STORAGE_ROOT", tmp_path / "data")
 
-    with pytest.raises(SecretKeyRegistryError, match="Persistent application storage"):
-        SecretKeyRegistry.from_environment()
+    registry = SecretKeyRegistry.from_environment()
+    credential = registry.create_pending("Railway Default Path Owner")
+    registry.activate(credential.key_fingerprint)
+    restarted_registry = SecretKeyRegistry.from_environment()
+
+    assert registry.database_path == tmp_path / "data" / "watermarkguard.sqlite3"
+    assert registry.database_path.exists()
+    assert registry.database_path.with_suffix(".sqlite3.key").exists()
+    assert restarted_registry.is_registered(credential.secret_key)
 
 
-def test_railway_registry_uses_mounted_volume(tmp_path, monkeypatch):
+def test_railway_registry_uses_data_mount(tmp_path, monkeypatch):
     monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
-    monkeypatch.setenv("RAILWAY_VOLUME_MOUNT_PATH", str(tmp_path))
+    monkeypatch.delenv("SECRET_KEY_STORAGE_PATH", raising=False)
+    monkeypatch.setattr(SecretKeyRegistry, "RAILWAY_STORAGE_ROOT", tmp_path)
     monkeypatch.setenv("WATERMARK_ENCRYPTION_KEY", Fernet.generate_key().decode("ascii"))
 
     registry = SecretKeyRegistry.from_environment()
     credential = registry.create_pending("Railway Owner")
     registry.activate(credential.key_fingerprint)
 
-    assert (tmp_path / "watermarkguard.sqlite3").exists()
+    assert registry.database_path == tmp_path / "watermarkguard.sqlite3"
+    assert registry.database_path.exists()
     assert registry.is_registered(credential.secret_key)
 
 
@@ -193,3 +207,27 @@ def test_railway_uses_secret_key_storage_path_without_extra_encryption_variable(
 
     assert registry.database_path.parent == storage_path
     assert registry.is_registered(credential.secret_key)
+
+
+def test_local_default_storage_stays_inside_project(tmp_path, monkeypatch):
+    for name in (
+        "RAILWAY_ENVIRONMENT",
+        "RAILWAY_PROJECT_ID",
+        "RAILWAY_SERVICE_ID",
+        "RAILWAY_VOLUME_MOUNT_PATH",
+        "SECRET_KEY_STORAGE_PATH",
+        "WATERMARK_DB_PATH",
+        "WATERMARK_ENCRYPTION_KEY",
+        "APP_ENV",
+        "ENVIRONMENT",
+        "ENV",
+        "NODE_ENV",
+    ):
+        monkeypatch.delenv(name, raising=False)
+
+    registry = SecretKeyRegistry.from_environment(project_root=tmp_path)
+
+    assert registry.database_path == (
+        tmp_path / ".watermarkguard" / "watermarkguard.sqlite3"
+    )
+    assert registry.database_path.exists()
