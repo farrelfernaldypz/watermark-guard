@@ -40,3 +40,4 @@ def test_detect_page_extracts_owner_identity_from_uploaded_watermark():
     app.button[-1].click().run()
 
     assert any("Watermark Not Detected" in element.value for element in app.markdown)
+    assert any("Secret Key tidak valid" in element.value for element in app.caption)

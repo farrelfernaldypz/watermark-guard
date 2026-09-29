@@ -1,11 +1,12 @@
 import io
+import sqlite3
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
 from streamlit.testing.v1 import AppTest
-from watermark.secret_key_registry import SecretKeyRegistry
 from watermark.dwt_dct_watermark import extract_watermark_by_key
+from watermark.secret_key_registry import SecretKeyRegistry
 
 
 def make_upload(name: str, seed: int) -> tuple[str, bytes, str]:
@@ -42,20 +43,29 @@ def test_create_single_upload_replaces_previous_image_and_processes_one():
     assert results[0]["name"] == "replacement.png"
     assert results[0]["error"] is None
     assert app.session_state["created_secret_key"]
-    watermark_id = app.session_state["created_watermark_id"]
     first_secret_key = app.session_state["created_secret_key"]
     registry = SecretKeyRegistry.from_environment()
-    assert registry.get_secret_key(watermark_id) == first_secret_key
+    assert registry.is_registered(first_secret_key)
     watermarked_image = Image.open(io.BytesIO(results[0]["watermarked_bytes"])).convert("RGB")
     extracted, observed_tag, expected_tag = extract_watermark_by_key(
         watermarked_image,
-        registry.get_secret_key(watermark_id),
+        first_secret_key,
     )
     assert extracted == "Single Owner"
     assert np.array_equal(observed_tag, expected_tag)
+    with sqlite3.connect(registry.database_path) as connection:
+        registered_count = connection.execute(
+            "SELECT COUNT(*) FROM watermark_registry"
+        ).fetchone()[0]
 
     app.run()
-    app.text_input(key="watermark_recovery_id").set_value(watermark_id).run()
-    app.button(key="retrieve_secret_key").click().run()
-    assert app.session_state["recovered_secret_key"] == first_secret_key
+    assert app.session_state["created_secret_key"] == first_secret_key
+    assert registry.is_registered(first_secret_key)
+    with sqlite3.connect(registry.database_path) as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM watermark_registry"
+        ).fetchone()[0] == registered_count
+    assert not any(element.label == "Watermark ID" for element in app.text_input)
+    assert not any(button.label == "Retrieve Secret Key" for button in app.button)
+    assert not any("Recover Secret Key" in element.value for element in app.markdown)
     assert not app.exception

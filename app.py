@@ -69,9 +69,6 @@ st.session_state.setdefault("multiple_attack_results", [])
 st.session_state.setdefault("multiple_attack_signature", None)
 st.session_state.setdefault("created_watermark_results", [])
 st.session_state.setdefault("created_watermark_signature", None)
-st.session_state.setdefault("created_watermark_id", None)
-st.session_state.setdefault("recovered_secret_key", None)
-st.session_state.setdefault("recovered_watermark_id", None)
 st.session_state.pop("create_images", None)
 st.session_state.pop("create_upload_generation", None)
 st.session_state.pop("create_upload_overflow", None)
@@ -673,7 +670,6 @@ with st.container(key="wg_content"):
         if st.session_state["created_watermark_signature"] != create_signature:
             st.session_state["created_watermark_results"] = []
             st.session_state["created_secret_key"] = None
-            st.session_state["created_watermark_id"] = None
             st.session_state["created_watermark_signature"] = create_signature
 
         create_clicked = st.button(
@@ -688,17 +684,17 @@ with st.container(key="wg_content"):
                 show_error("Teks watermark wajib diisi.")
             else:
                 created_results = []
-                reserved_watermark_id = None
+                reserved_key_fingerprint = None
                 with st.spinner("Creating watermarks..."):
                     try:
                         original = load_image(create_upload)
                         registry = SecretKeyRegistry.from_environment()
                         credential = registry.create_pending(watermark_text)
-                        reserved_watermark_id = credential.watermark_id
+                        reserved_key_fingerprint = credential.key_fingerprint
                         watermarked, _ = embed_watermark(
                             original, watermark_text, credential.secret_key
                         )
-                        registry.activate(credential.watermark_id)
+                        registry.activate(credential.key_fingerprint)
                         original_array = np.asarray(original)
                         watermarked_array = np.asarray(watermarked)
                         difference = np.max(
@@ -720,7 +716,6 @@ with st.container(key="wg_content"):
                                     Image.fromarray(difference_map), "PNG"
                                 ),
                                 "psnr": psnr(original_array, watermarked_array),
-                                "watermark_id": credential.watermark_id,
                                 "secret_key": credential.secret_key,
                                 "error": None,
                             }
@@ -731,15 +726,19 @@ with st.container(key="wg_content"):
                         UnidentifiedImageError,
                         SecretKeyRegistryError,
                     ) as error:
-                        if reserved_watermark_id is not None:
+                        if reserved_key_fingerprint is not None:
                             try:
-                                registry.mark_failed(reserved_watermark_id)
+                                registry.mark_failed(reserved_key_fingerprint)
                             except SecretKeyRegistryError:
                                 pass
                         created_results.append(
                             {
                                 "name": create_upload.name,
-                                "error": str(error),
+                                "error": (
+                                    "Penyimpanan Secret Key tidak tersedia. Silakan coba lagi nanti."
+                                    if isinstance(error, SecretKeyRegistryError)
+                                    else str(error)
+                                ),
                             }
                         )
                 st.session_state["created_watermark_results"] = created_results
@@ -749,9 +748,6 @@ with st.container(key="wg_content"):
                 )
                 st.session_state["created_secret_key"] = (
                     successful_result["secret_key"] if successful_result else None
-                )
-                st.session_state["created_watermark_id"] = (
-                    successful_result["watermark_id"] if successful_result else None
                 )
 
         created_results = st.session_state["created_watermark_results"]
@@ -778,7 +774,6 @@ with st.container(key="wg_content"):
                     metric_column, info_column = st.columns([1, 2])
                     metric_column.metric("PSNR", f"{result['psnr']:.2f} dB")
                     info_column.markdown(f"**Watermark created**  \n{watermark_text}")
-                    info_column.caption(f"Watermark ID: {result['watermark_id']}")
                     show_status("detected", "\u2713 Watermark Created")
                     with st.expander("View watermark effect"):
                         effect_preview_columns = st.columns([1, 2, 1])
@@ -798,30 +793,8 @@ with st.container(key="wg_content"):
 
         if st.session_state.get("created_secret_key"):
             st.markdown("### Secret Key")
-            st.caption("Simpan Secret Key dan Watermark ID dengan aman. Watermark ID dapat digunakan untuk mengambil kembali Secret Key.")
+            st.caption("Klik ikon salin pada blok kode untuk menyalin Secret Key. Simpan key ini dengan aman.")
             st.code(st.session_state["created_secret_key"], language=None)
-
-        st.markdown("### Recover Secret Key")
-        st.caption("Masukkan Watermark ID untuk mengambil Secret Key yang tersimpan.")
-        recovery_id = st.text_input("Watermark ID", key="watermark_recovery_id")
-        if st.session_state["recovered_watermark_id"] != recovery_id.strip():
-            st.session_state["recovered_watermark_id"] = recovery_id.strip()
-            st.session_state["recovered_secret_key"] = None
-        if st.button("Retrieve Secret Key", key="retrieve_secret_key"):
-            try:
-                registry = SecretKeyRegistry.from_environment()
-                recovered_secret = registry.get_secret_key(recovery_id.strip())
-                if recovered_secret is None:
-                    st.session_state["recovered_secret_key"] = None
-                    show_error("Watermark ID tidak ditemukan atau watermark belum aktif.")
-                else:
-                    st.session_state["recovered_secret_key"] = recovered_secret
-            except SecretKeyRegistryError as error:
-                st.session_state["recovered_secret_key"] = None
-                show_error(str(error))
-
-        if st.session_state.get("recovered_secret_key"):
-            st.code(st.session_state["recovered_secret_key"], language=None)
 
     elif active_page == "Detect Watermark":
         page_header("Detect Watermark", "Extract the owner identity using its secret key.")
@@ -883,6 +856,9 @@ with st.container(key="wg_content"):
                             show_status("partial", "! Watermark Partially Detected · possibly altered")
                         else:
                             show_status("missing", "× Watermark Not Detected")
+                            st.caption(
+                                "Secret Key tidak valid atau watermark tidak dapat divalidasi."
+                            )
                         result_preview_columns = st.columns([1, 2, 1])
                         result_preview_columns[1].image(
                             image,

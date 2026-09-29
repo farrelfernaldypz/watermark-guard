@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
-from cryptography.fernet import Fernet, InvalidToken
+from cryptography.fernet import Fernet
 
 
 class SecretKeyRegistryError(RuntimeError):
@@ -15,9 +15,9 @@ class SecretKeyRegistryError(RuntimeError):
 
 
 @dataclass(frozen=True)
-class WatermarkCredential:
-    watermark_id: str
+class SecretKeyCredential:
     secret_key: str
+    key_fingerprint: str
 
 
 class SecretKeyRegistry:
@@ -60,15 +60,21 @@ class SecretKeyRegistry:
         if is_railway:
             if not volume_path:
                 raise SecretKeyRegistryError(
-                    "Pasang Railway Volume dan mount ke service sebelum membuat atau memvalidasi Secret Key."
+                    "Persistent application storage is not configured."
                 )
             database_path = Path(volume_path) / "watermarkguard.sqlite3"
             encryption_key = os.environ.get("WATERMARK_ENCRYPTION_KEY")
             if not encryption_key:
                 raise SecretKeyRegistryError(
-                    "Atur WATERMARK_ENCRYPTION_KEY sebagai Railway service variable yang permanen."
+                    "Persistent Secret Key storage is not configured."
                 )
-            return cls(database_path, encryption_key.encode("ascii"))
+            try:
+                encoded_key = encryption_key.encode("ascii")
+            except UnicodeEncodeError as error:
+                raise SecretKeyRegistryError(
+                    "Persistent Secret Key storage is not configured."
+                ) from error
+            return cls(database_path, encoded_key)
 
         configured_path = os.environ.get("WATERMARK_DB_PATH")
         database_path = (
@@ -77,11 +83,15 @@ class SecretKeyRegistry:
             else root / ".watermarkguard" / "watermarkguard.sqlite3"
         )
         configured_key = os.environ.get("WATERMARK_ENCRYPTION_KEY")
-        encryption_key = (
-            configured_key.encode("ascii")
-            if configured_key
-            else cls._load_or_create_local_encryption_key(database_path)
-        )
+        if configured_key:
+            try:
+                encryption_key = configured_key.encode("ascii")
+            except UnicodeEncodeError as error:
+                raise SecretKeyRegistryError(
+                    "WATERMARK_ENCRYPTION_KEY harus berupa Fernet key yang valid."
+                ) from error
+        else:
+            encryption_key = cls._load_or_create_local_encryption_key(database_path)
         return cls(database_path, encryption_key)
 
     @staticmethod
@@ -113,64 +123,111 @@ class SecretKeyRegistry:
 
     def _initialize_database(self) -> None:
         with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """
-                CREATE TABLE IF NOT EXISTS watermark_registry (
-                    watermark_id TEXT PRIMARY KEY,
-                    key_fingerprint TEXT NOT NULL UNIQUE,
-                    encrypted_secret_key BLOB NOT NULL,
-                    owner_identity TEXT NOT NULL,
-                    algorithm TEXT NOT NULL,
-                    created_at TEXT NOT NULL,
-                    status TEXT NOT NULL CHECK (status IN ('pending', 'active', 'failed'))
-                )
-                """
-            )
-            connection.execute(
-                """
-                CREATE TRIGGER IF NOT EXISTS prevent_watermark_identity_update
-                BEFORE UPDATE OF watermark_id, key_fingerprint, encrypted_secret_key,
-                                 owner_identity, algorithm, created_at
-                ON watermark_registry
-                BEGIN
-                    SELECT RAISE(ABORT, 'watermark identity is immutable');
-                END
-                """
-            )
-            connection.execute(
-                """
-                CREATE TRIGGER IF NOT EXISTS prevent_watermark_delete
-                BEFORE DELETE ON watermark_registry
-                BEGIN
-                    SELECT RAISE(ABORT, 'watermark registry records are permanent');
-                END
-                """
-            )
-            connection.execute(
-                """
-                CREATE TRIGGER IF NOT EXISTS validate_watermark_status_transition
-                BEFORE UPDATE OF status ON watermark_registry
-                WHEN OLD.status != 'pending'
-                     OR NEW.status NOT IN ('active', 'failed')
-                BEGIN
-                    SELECT RAISE(ABORT, 'invalid watermark status transition');
-                END
-                """
-            )
+            table = connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name = 'watermark_registry'"
+            ).fetchone()
+            if table is None:
+                self._create_registry_table(connection, "watermark_registry")
+            else:
+                columns = {
+                    row[1]
+                    for row in connection.execute(
+                        "PRAGMA table_info(watermark_registry)"
+                    ).fetchall()
+                }
+                if "watermark_id" in columns:
+                    self._migrate_legacy_watermark_ids(connection)
+                elif "key_fingerprint" not in columns:
+                    raise SecretKeyRegistryError(
+                        "Database Secret Key tidak memiliki skema yang didukung."
+                    )
+
+            self._create_registry_triggers(connection)
 
     @staticmethod
-    def _fingerprint(secret_key: str) -> str:
+    def _create_registry_table(
+        connection: sqlite3.Connection,
+        table_name: str,
+    ) -> None:
+        connection.execute(
+            f"""
+            CREATE TABLE {table_name} (
+                key_fingerprint TEXT PRIMARY KEY,
+                encrypted_secret_key BLOB NOT NULL,
+                owner_identity TEXT NOT NULL,
+                algorithm TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                status TEXT NOT NULL CHECK (status IN ('pending', 'active', 'failed'))
+            )
+            """
+        )
+
+    def _migrate_legacy_watermark_ids(self, connection: sqlite3.Connection) -> None:
+        connection.execute("DROP TABLE IF EXISTS watermark_registry_without_ids")
+        self._create_registry_table(connection, "watermark_registry_without_ids")
+        connection.execute(
+            """
+            INSERT INTO watermark_registry_without_ids (
+                key_fingerprint, encrypted_secret_key, owner_identity,
+                algorithm, created_at, status
+            )
+            SELECT key_fingerprint, encrypted_secret_key, owner_identity,
+                   algorithm, created_at, status
+            FROM watermark_registry
+            """
+        )
+        connection.execute("DROP TABLE watermark_registry")
+        connection.execute(
+            "ALTER TABLE watermark_registry_without_ids RENAME TO watermark_registry"
+        )
+
+    @staticmethod
+    def _create_registry_triggers(connection: sqlite3.Connection) -> None:
+        connection.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS prevent_secret_key_identity_update
+            BEFORE UPDATE OF key_fingerprint, encrypted_secret_key,
+                             owner_identity, algorithm, created_at
+            ON watermark_registry
+            BEGIN
+                SELECT RAISE(ABORT, 'secret key identity is immutable');
+            END
+            """
+        )
+        connection.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS prevent_secret_key_delete
+            BEFORE DELETE ON watermark_registry
+            BEGIN
+                SELECT RAISE(ABORT, 'secret key records are permanent');
+            END
+            """
+        )
+        connection.execute(
+            """
+            CREATE TRIGGER IF NOT EXISTS validate_secret_key_status_transition
+            BEFORE UPDATE OF status ON watermark_registry
+            WHEN OLD.status != 'pending'
+                 OR NEW.status NOT IN ('active', 'failed')
+            BEGIN
+                SELECT RAISE(ABORT, 'invalid secret key status transition');
+            END
+            """
+        )
+
+    @staticmethod
+    def fingerprint(secret_key: str) -> str:
         return hashlib.sha256(secret_key.encode("utf-8")).hexdigest()
 
     def create_pending(
         self,
         owner_identity: str,
         algorithm: str = "hybrid-dwt-dct",
-    ) -> WatermarkCredential:
+    ) -> SecretKeyCredential:
         """Reserve a fresh unique key before embedding starts."""
         for _ in range(20):
             secret_key = secrets.token_urlsafe(32)
-            watermark_id = secrets.token_urlsafe(24)
+            key_fingerprint = self.fingerprint(secret_key)
             created_at = datetime.now(timezone.utc).isoformat()
             try:
                 with closing(self._connect()) as connection, connection:
@@ -178,25 +235,23 @@ class SecretKeyRegistry:
                     connection.execute(
                         """
                         INSERT INTO watermark_registry (
-                            watermark_id,
                             key_fingerprint,
                             encrypted_secret_key,
                             owner_identity,
                             algorithm,
                             created_at,
                             status
-                        ) VALUES (?, ?, ?, ?, ?, ?, 'pending')
+                        ) VALUES (?, ?, ?, ?, ?, 'pending')
                         """,
                         (
-                            watermark_id,
-                            self._fingerprint(secret_key),
+                            key_fingerprint,
                             self._fernet.encrypt(secret_key.encode("utf-8")),
                             owner_identity,
                             algorithm,
                             created_at,
                         ),
                     )
-                return WatermarkCredential(watermark_id, secret_key)
+                return SecretKeyCredential(secret_key, key_fingerprint)
             except sqlite3.IntegrityError:
                 continue
             except sqlite3.Error as error:
@@ -208,21 +263,21 @@ class SecretKeyRegistry:
             "Tidak berhasil membuat Secret Key unik setelah beberapa percobaan."
         )
 
-    def activate(self, watermark_id: str) -> None:
-        self._set_status(watermark_id, "active")
+    def activate(self, key_fingerprint: str) -> None:
+        self._set_status(key_fingerprint, "active")
 
-    def mark_failed(self, watermark_id: str) -> None:
-        self._set_status(watermark_id, "failed")
+    def mark_failed(self, key_fingerprint: str) -> None:
+        self._set_status(key_fingerprint, "failed")
 
-    def _set_status(self, watermark_id: str, status: str) -> None:
+    def _set_status(self, key_fingerprint: str, status: str) -> None:
         try:
             with closing(self._connect()) as connection, connection:
                 cursor = connection.execute(
-                    "UPDATE watermark_registry SET status = ? WHERE watermark_id = ?",
-                    (status, watermark_id),
+                    "UPDATE watermark_registry SET status = ? WHERE key_fingerprint = ?",
+                    (status, key_fingerprint),
                 )
                 if cursor.rowcount != 1:
-                    raise SecretKeyRegistryError("Watermark ID tidak ditemukan.")
+                    raise SecretKeyRegistryError("Secret Key tidak ditemukan.")
         except sqlite3.Error as error:
             raise SecretKeyRegistryError(
                 "Status Secret Key tidak dapat disimpan."
@@ -236,34 +291,10 @@ class SecretKeyRegistry:
                     SELECT 1 FROM watermark_registry
                     WHERE key_fingerprint = ? AND status = 'active'
                     """,
-                    (self._fingerprint(secret_key),),
+                    (self.fingerprint(secret_key),),
                 ).fetchone()
             return row is not None
         except sqlite3.Error as error:
             raise SecretKeyRegistryError(
                 "Secret Key tidak dapat divalidasi melalui database."
-            ) from error
-
-    def get_secret_key(self, watermark_id: str) -> str | None:
-        try:
-            with closing(self._connect()) as connection:
-                row = connection.execute(
-                    """
-                    SELECT encrypted_secret_key FROM watermark_registry
-                    WHERE watermark_id = ? AND status = 'active'
-                    """,
-                    (watermark_id,),
-                ).fetchone()
-        except sqlite3.Error as error:
-            raise SecretKeyRegistryError(
-                "Secret Key tidak dapat diambil dari database."
-            ) from error
-
-        if row is None:
-            return None
-        try:
-            return self._fernet.decrypt(row[0]).decode("utf-8")
-        except (InvalidToken, UnicodeDecodeError) as error:
-            raise SecretKeyRegistryError(
-                "Secret Key tidak dapat didekripsi. Pastikan WATERMARK_ENCRYPTION_KEY tetap sama."
             ) from error
