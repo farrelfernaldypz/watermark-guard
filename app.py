@@ -70,26 +70,31 @@ def render_copy_secret_key(secret_key: str) -> None:
     encoded_key = json.dumps(secret_key)
     button_html = f"""
     <button id="copy-secret-key" type="button" style="
-        padding: 0.5rem 0.9rem; border: 1px solid #8b5cf6; border-radius: 0.5rem;
-        background: #4f46e5; color: white; font: inherit; cursor: pointer;
-    ">Copy Secret Key</button>
-    <span id="copy-secret-key-status" aria-live="polite" style="margin-left: 0.6rem;"></span>
+        padding: 0.55rem 1rem; border: 1px solid #a78bfa; border-radius: 0.5rem;
+        background: #4f46e5; color: #ffffff; font: inherit; font-weight: 700;
+        cursor: pointer; transition: background-color 150ms ease;
+    " aria-live="polite">Copy Secret Key</button>
     <script>
       const secretKey = {encoded_key};
       const copyButton = document.getElementById("copy-secret-key");
-      const copyStatus = document.getElementById("copy-secret-key-status");
+      let resetTimer;
       copyButton.addEventListener("click", async () => {{
+        clearTimeout(resetTimer);
         try {{
+          if (!navigator.clipboard || !navigator.clipboard.writeText) {{
+            throw new Error("Clipboard API is unavailable");
+          }}
           await navigator.clipboard.writeText(secretKey);
+          copyButton.textContent = "✓ Copied!";
+          copyButton.style.backgroundColor = "#047857";
         }} catch (error) {{
-          const field = document.createElement("textarea");
-          field.value = secretKey;
-          document.body.appendChild(field);
-          field.select();
-          document.execCommand("copy");
-          field.remove();
+          copyButton.textContent = "✕ Copy Failed";
+          copyButton.style.backgroundColor = "#b91c1c";
         }}
-        copyStatus.textContent = "Copied";
+        resetTimer = setTimeout(() => {{
+          copyButton.textContent = "Copy Secret Key";
+          copyButton.style.backgroundColor = "#4f46e5";
+        }}, 2000);
       }});
     </script>
     """
