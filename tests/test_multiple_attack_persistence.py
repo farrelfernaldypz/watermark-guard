@@ -28,21 +28,43 @@ def test_multiple_attack_results_remain_after_rerun(monkeypatch):
     app.run()
 
     app.file_uploader(key="attack_image").set_value(
-        ("watermarked.png", uploaded_image, "image/png")
+        ("foto_pemandangan.png", uploaded_image, "image/png")
     ).run()
-    app.multiselect[0].set_value(["JPEG 90", "Resize 75%"]).run()
+    selected_attacks = [
+        "JPEG 90",
+        "JPEG 70",
+        "JPEG 50",
+        "Crop 10%",
+        "Resize 75%",
+        "Gaussian Noise",
+        "Gaussian Blur",
+        "Brightness +20",
+        "Contrast 1.2",
+    ]
+    app.multiselect[0].set_value(selected_attacks).run()
     app.button[-1].click().run()
 
     first_results = app.session_state["multiple_attack_results"]
-    assert [result["attack_name"] for result in first_results] == ["JPEG 90", "Resize 75%"]
-    assert applied_attacks == ["JPEG 90", "Resize 75%"]
+    assert [result["attack_name"] for result in first_results] == selected_attacks
+    assert [result["file_name"] for result in first_results] == [
+        "attacked_jpeg_90_foto_pemandangan.jpg",
+        "attacked_jpeg_70_foto_pemandangan.jpg",
+        "attacked_jpeg_50_foto_pemandangan.jpg",
+        "attacked_crop_10pct_foto_pemandangan.png",
+        "attacked_resize_75pct_foto_pemandangan.png",
+        "attacked_gaussian_noise_foto_pemandangan.png",
+        "attacked_gaussian_blur_foto_pemandangan.png",
+        "attacked_brightness_plus20_foto_pemandangan.png",
+        "attacked_contrast_1.2_foto_pemandangan.png",
+    ]
+    assert applied_attacks == selected_attacks
     saved_image_bytes = [result["image_bytes"] for result in first_results]
-    assert len(app.get("download_button")) == 2
+    assert len(app.get("download_button")) == len(selected_attacks)
 
     app.run()
 
     rerun_results = app.session_state["multiple_attack_results"]
     assert [result["image_bytes"] for result in rerun_results] == saved_image_bytes
-    assert len(app.get("download_button")) == 2
-    assert applied_attacks == ["JPEG 90", "Resize 75%"]
+    assert len(app.get("download_button")) == len(selected_attacks)
+    assert applied_attacks == selected_attacks
     assert not app.exception

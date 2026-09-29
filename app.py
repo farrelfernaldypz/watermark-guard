@@ -1,6 +1,8 @@
 import io
 import hashlib
+import re
 import secrets
+from pathlib import Path
 
 import numpy as np
 import streamlit as st
@@ -39,6 +41,14 @@ def image_bytes(image: Image.Image, image_format: str) -> bytes:
     buffer = io.BytesIO()
     image.save(buffer, format=image_format)
     return buffer.getvalue()
+
+
+def safe_filename_stem(filename: str) -> str:
+    """Return a filesystem-safe stem from an uploaded filename."""
+    basename = Path(filename.replace("\\", "/")).name
+    stem = Path(basename).stem
+    safe_stem = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", stem).strip(" .")
+    return safe_stem or "image"
 
 
 def navigate_to(page: str) -> None:
@@ -893,6 +903,7 @@ with st.container(key="wg_content"):
             else:
                 try:
                     watermarked = load_image(attack_upload)
+                    input_stem = safe_filename_stem(attack_upload.name)
                     original_bytes = image_bytes(watermarked, "PNG")
                     multiple_results = []
                     if mode == "Multiple Attacks":
@@ -906,7 +917,7 @@ with st.container(key="wg_content"):
                             result = {
                                 "attack_name": attack_name,
                                 "image_bytes": image_bytes(attacked, output_format),
-                                "file_name": f"attacked_{attack_name.lower().replace(' ', '_').replace('%', 'pct').replace('+', 'plus')}.{extension}",
+                                "file_name": f"attacked_{attack_name.lower().replace(' ', '_').replace('%', 'pct').replace('+', 'plus')}_{input_stem}.{extension}",
                                 "mime_type": "image/jpeg" if output_format == "JPEG" else "image/png",
                             }
 
