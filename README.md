@@ -30,8 +30,10 @@ WatermarkGuard menyisipkan teks identitas pemilik ke dalam gambar dan menyediaka
 - [Metrik evaluasi](#metrik-evaluasi)
 - [Struktur proyek](#struktur-proyek)
 - [Teknologi](#teknologi)
+- [Persyaratan](#persyaratan)
 - [Instalasi dan menjalankan](#instalasi-dan-menjalankan)
 - [Alur penggunaan](#alur-penggunaan)
+- [Contoh demonstrasi](#contoh-demonstrasi)
 - [Penyimpanan Secret Key](#penyimpanan-secret-key)
 - [Deployment di Railway](#deployment-di-railway)
 - [Pengujian](#pengujian)
@@ -66,6 +68,18 @@ Attack hanya mengubah gambar yang diunggah. Setiap attack pada mode **Multiple A
 | Gaussian Blur | Gaussian blur kernel 3×3, `sigmaX=0.8` |
 | Brightness +20 | Faktor kecerahan 1.20 |
 | Contrast 1.2 | Faktor kontras 1.20 |
+
+## Alur aplikasi
+
+```mermaid
+flowchart LR
+    A[Create Watermark] -->|gambar watermarked + Secret Key| B[Attack opsional]
+    A -->|gambar watermarked + Secret Key| C[Detect Watermark]
+    B -->|gambar hasil attack| C
+    C --> D[Status, identitas, NC, BER]
+```
+
+Pada mode Multiple Attacks, setiap serangan berjalan sendiri terhadap gambar input. Hasil attack bukan input otomatis bagi attack lainnya.
 
 ## Cara kerja
 
@@ -133,6 +147,14 @@ NC dan BER pada halaman Detect mengukur tag integritas, bukan kualitas visual ga
 
 Versi dependensi dicantumkan di [`requirements.txt`](requirements.txt); dependensi Streamlit dan beberapa paket lain tidak dipatok ke versi tertentu.
 
+## Persyaratan
+
+- Instalasi Python dengan `venv` dan `pip`.
+- Dependensi yang tercantum di `requirements.txt`.
+- Gambar masukan dalam format PNG atau JPEG.
+
+Repo tidak menetapkan versi minimum Python secara eksplisit. Gunakan versi Python yang mendukung seluruh paket yang tercantum di `requirements.txt`.
+
 ## Instalasi dan menjalankan
 
 Pastikan Python tersedia, lalu buat virtual environment dari direktori proyek.
@@ -161,13 +183,25 @@ python -m streamlit run app.py
 2. **Attack (opsional):** unggah gambar watermarked, pilih satu atau beberapa attack, lalu unduh hasilnya.
 3. **Detect Watermark:** unggah gambar watermarked atau hasil attack dan masukkan Secret Key yang dipakai saat embedding.
 
+## Contoh demonstrasi
+
+1. Pada **Create Watermark**, unggah gambar PNG/JPEG, masukkan identitas pemilik, lalu jalankan proses. Unduh gambar hasil dan salin Secret Key.
+2. Pada **Attack**, unggah gambar hasil tersebut. Pilih **Single Attack** untuk satu serangan atau **Multiple Attacks** untuk menjalankan beberapa serangan secara terpisah. Unduh gambar hasil yang ingin diuji.
+3. Pada **Detect Watermark**, unggah gambar watermarked atau hasil attack dan masukkan Secret Key dari tahap pertama. Catat status deteksi, NC, dan BER.
+4. Ulangi pemeriksaan dengan hasil attack yang berbeda untuk membandingkan keluaran pada gambar dan serangan yang sama. Hasil ini merupakan pengamatan untuk masukan tersebut, bukan jaminan umum ketahanan.
+
 ## Penyimpanan Secret Key
 
-Secret Key dibuat menggunakan generator acak kriptografis dan dicatat pada tabel SQLite `watermark_registry`. Fingerprint SHA-256 dari Secret Key menjadi primary key; nilai key disimpan terenkripsi dengan Fernet. Database juga mencatat identitas pemilik, algoritma, waktu pembuatan, dan status key.
+Ada dua key dengan kegunaan berbeda:
+
+- **Secret Key watermark** dibuat menggunakan generator acak kriptografis saat watermark dibuat. Key ini diperlukan untuk membaca urutan blok dan memvalidasi tag saat proses deteksi. Simpan dan berikan key yang sama pada halaman Detect Watermark.
+- **Key enkripsi registry** digunakan Fernet untuk mengenkripsi Secret Key watermark yang tersimpan di database. Registry membuat atau memuat key ini dari file di sebelah database, kecuali `WATERMARK_ENCRYPTION_KEY` ditetapkan.
+
+Registry mencatat Secret Key watermark pada tabel SQLite `watermark_registry`. Fingerprint SHA-256 dari Secret Key menjadi primary key; nilai key disimpan terenkripsi. Database juga mencatat identitas pemilik, algoritma, waktu pembuatan, dan status key.
 
 Secara lokal, registry menggunakan `.watermarkguard/watermarkguard.sqlite3` dan file key enkripsi `.watermarkguard/watermarkguard.sqlite3.key` di direktori proyek. Direktori dibuat otomatis. `WATERMARK_DB_PATH` dapat menentukan path file database lokal; `SECRET_KEY_STORAGE_PATH` dapat menentukan direktori storage.
 
-Jangan menghapus atau mengganti file key enkripsi maupun nilai `WATERMARK_ENCRYPTION_KEY` yang sudah digunakan. Database tidak dapat mendekripsi Secret Key yang tersimpan jika key enkripsinya hilang atau berubah. Secret Key hasil embedding juga diperlukan untuk ekstraksi dan validasi.
+Jangan menghapus atau mengganti file key enkripsi maupun nilai `WATERMARK_ENCRYPTION_KEY` yang sudah digunakan. Database tidak dapat mendekripsi Secret Key watermark yang tersimpan jika key enkripsinya hilang atau berubah. Kehilangan Secret Key watermark juga mencegah pemeriksaan watermark dengan key yang sama.
 
 ## Deployment di Railway
 
@@ -210,12 +244,14 @@ Tes mencakup:
 
 ## Catatan dan batasan
 
-- Kemampuan ekstraksi setelah perubahan gambar bergantung pada jenis dan kekuatan attack. Hasil pada beberapa tes tidak menjamin hasil yang sama untuk gambar atau parameter lain.
+- Ketahanan di sini berarti watermark masih dapat dibaca atau divalidasi setelah perubahan tertentu. Kemampuan ekstraksi bergantung pada gambar, jenis attack, serta kekuatannya; hasil beberapa pengujian bukan jaminan untuk semua gambar dan kondisi.
 - Simpan Secret Key saat dibuat dan gunakan key tersebut saat deteksi.
 - Jangan menghapus atau mengganti file key enkripsi registry. Kehilangannya dapat membuat Secret Key yang tersimpan tidak dapat dibaca.
 - Crop dapat menghilangkan informasi watermark yang diperlukan untuk ekstraksi.
+- NC dan BER yang ditampilkan membandingkan bit tag integritas. Keduanya bukan metrik kualitas visual gambar.
 - `WATERMARK_ENCRYPTION_KEY` harus berupa Fernet key yang valid bila ditetapkan secara eksplisit.
 
 ## Screenshots
 
 <!-- TODO: tambahkan screenshot aplikasi -->
+<!-- Disarankan: tambahkan gambar halaman Create Watermark, Attack, dan Detect Watermark dengan caption singkat. -->
