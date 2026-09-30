@@ -12,6 +12,14 @@ WatermarkGuard menyisipkan teks identitas pemilik ke dalam gambar dan menyediaka
 
 > Secret Key diperlukan untuk membaca urutan blok yang dipakai saat embedding dan untuk memvalidasi tag integritas. Simpan key dari proses pembuatan; tanpa key yang sama, identitas tidak dapat diekstrak dan divalidasi.
 
+## Tim
+
+| No | Nama | NPM |
+| --- | --- | --- |
+| 1 | Farrel Fernaldy Putra Zaeni | 247006111138 |
+| 2 | Ripki Maulana | 247006111139 |
+| 3 | Muhammad Omar Zizhar Ramadhan | 247006111169 |
+
 ## Daftar isi
 
 - [Fitur](#fitur)
